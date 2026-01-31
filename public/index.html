@@ -11,10 +11,19 @@
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <link rel="manifest" href="/manifest.json" />
 
     <title>Privex Secure Terminal</title>
   </head>
+  <script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('Privex Engine Active'))
+        .catch(err => console.log('Engine failed to start', err));
+    });
+  }
+</script>
   <body>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
