@@ -4,35 +4,27 @@ import Login from './components/Login';
 
 function App() {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // Prevents flickering
+  const [loading, setLoading] = useState(true);
 
-  // 1. RUNS WHEN APP STARTS
+  // 1. On Startup: We DON'T auto-login anymore. We wait for PIN entry.
   useEffect(() => {
-    // Check if we have a saved user in the hard drive
-    const savedUser = localStorage.getItem('privex_user');
-    
-    if (savedUser) {
-      console.log("Found saved user:", savedUser); // Debugging
-      setUser(JSON.parse(savedUser));
-    }
+    // Just check if credentials EXIST, but don't set 'user' yet.
+    // This forces the Login screen to appear so they can enter the PIN.
     setLoading(false);
   }, []);
 
-  // 2. SAVES USER WHEN LOGGING IN
+  // 2. When Login.js says "PIN Valid":
   const handleLogin = (userData) => {
-    console.log("Saving user to disk:", userData);
-    localStorage.setItem('privex_user', JSON.stringify(userData));
-    setUser(userData);
+    setUser(userData); 
+    // We don't need to save to localStorage here, Login.js already did it.
   };
 
-  // 3. WIPES DATA WHEN LOGGING OUT
   const handleLogout = () => {
-    localStorage.removeItem('privex_user');
-    setUser(null);
+    setUser(null); // Just go back to PIN screen
+    // Do NOT remove 'privex_credentials' unless they do a Hard Reset.
   };
 
-  // Show a black screen while checking memory (so you don't see login for 0.1s)
-  if (loading) return <div style={{backgroundColor: '#121212', height: '100vh'}} />;
+  if (loading) return <div style={{background:'#000', height:'100vh'}} />;
 
   return (
     <div className="App">
