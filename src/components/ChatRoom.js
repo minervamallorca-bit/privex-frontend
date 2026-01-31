@@ -1,34 +1,50 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { db } from '../firebase'; // Connect to the file you just made
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
 export default function ChatRoom({ user, logout }) {
-  const [messages, setMessages] = useState([
-    { id: 1, text: "INITIALIZING ENCRYPTED CONNECTION...", sender: "SYSTEM", isSystem: true },
-    { id: 2, text: `IDENTITY VERIFIED: ${user.name.toUpperCase()}`, sender: "SYSTEM", isSystem: true },
-    { id: 3, text: "CHANNEL SECURE. 🔒", sender: "SYSTEM", isSystem: true }
-  ]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
 
-  // Auto-scroll to bottom
+  // 1. LISTEN TO DATABASE (Real-Time Connection)
+  useEffect(() => {
+    // Create a query to ask for messages sorted by time
+    const q = query(collection(db, "messages"), orderBy("createdAt"));
+
+    // Open a live channel (websocket) to Google
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const liveMessages = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }));
+      setMessages(liveMessages);
+    });
+
+    // Close channel when leaving
+    return () => unsubscribe();
+  }, []);
+
+  // 2. AUTO-SCROLL TO BOTTOM
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const handleSend = () => {
+  // 3. SEND MESSAGE TO CLOUD
+  const handleSend = async () => {
     if (!input.trim()) return;
-    
-    const newMsg = {
-      id: Date.now(),
+
+    // Send data to Firestore
+    await addDoc(collection(db, "messages"), {
       text: input,
       sender: user.name,
+      createdAt: serverTimestamp(), // Let server decide the time
       isSystem: false
-    };
+    });
 
-    setMessages([...messages, newMsg]);
-    setInput('');
+    setInput(''); // Clear input
   };
 
-  // Handle "Enter" key
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') handleSend();
   };
@@ -39,7 +55,7 @@ export default function ChatRoom({ user, logout }) {
       <div style={styles.header}>
         <div style={styles.status}>
             <span style={styles.dot}></span>
-            <span>ENCRYPTED_CHANNEL_V2</span>
+            <span>UPLINK_ESTABLISHED: {messages.length} MSGS</span>
         </div>
         <button onClick={logout} style={styles.logoutBtn}>
             DISCONNECT 🚫
@@ -75,7 +91,7 @@ export default function ChatRoom({ user, logout }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={handleKeyPress}
-          placeholder="ENTER MESSAGE..."
+          placeholder="TRANSMIT DATA..."
         />
         <button onClick={handleSend} style={styles.sendBtn}>
             📤 SEND
@@ -85,6 +101,7 @@ export default function ChatRoom({ user, logout }) {
   );
 }
 
+// MATRIX STYLES (Unchanged)
 const styles = {
   container: {
     display: 'flex', flexDirection: 'column', height: '100vh',
