@@ -1,18 +1,18 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage"; // NEW LINE
 
-// REPLACE THIS SECTION WITH YOUR REAL KEYS FROM GOOGLE
+// YOUR KEYS (KEEP YOUR EXISTING KEYS HERE)
 const firebaseConfig = {
- apiKey: "AIzaSyDiIAkf3ZeyfrqD8ARGawuI6m_mmsi4kyo",
-  authDomain: "privex-....firebaseapp.com",
+  // ⚠️ PASTE YOUR PREVIOUS KEYS HERE AGAIN ⚠️
+  apiKey: "YOUR_API_KEY_HERE", 
+  authDomain: "privex-network.firebaseapp.com",
   projectId: "privex-network",
-  storageBucket: "privex-....appspot.com",
+  storageBucket: "privex-network.appspot.com",
   messagingSenderId: "...",
   appId: "..."
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
-
-// Initialize Database (Firestore)
 export const db = getFirestore(app);
+export const storage = getStorage(app); // NEW EXPORT
