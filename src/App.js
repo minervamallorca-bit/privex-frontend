@@ -21,7 +21,6 @@ function App() {
 
   const handleLogout = () => {
     setUser(null); // Just go back to PIN screen
-    // Do NOT remove 'privex_credentials' unless they do a Hard Reset.
   };
 
   if (loading) return <div style={{background:'#000', height:'100vh'}} />;
