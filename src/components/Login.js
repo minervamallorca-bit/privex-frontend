@@ -1,4 +1,4 @@
-// PIN SYSTEM UPDATE v3ssss
+// ACTIVATING PIN SYSTEM NOW
 import logo from '../logo.png';
 
 export default function Login({ onLogin }) {
