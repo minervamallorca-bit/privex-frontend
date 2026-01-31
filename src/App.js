@@ -16,7 +16,6 @@ function App() {
   // 2. When Login.js says "PIN Valid":
   const handleLogin = (userData) => {
     setUser(userData); 
-    // We don't need to save to localStorage here, Login.js already did it.
   };
 
   const handleLogout = () => {
