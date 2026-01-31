@@ -2,31 +2,27 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>PRIVEX App</title>
-  </head><!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    
-    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#121212" />
+    <title>PRIVEX App</title>
 
-    <title>Privex Secure Terminal</title>
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
   </head>
-  <script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
-        .then(reg => console.log('Privex Engine Active'))
-        .catch(err => console.log('Engine failed to start', err));
-    });
-  }
-</script>
-  <body>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/sw.js').then(function(reg) {
+            console.log('Privex Engine Active:', reg.scope);
+          }).catch(function(err) {
+            console.log('Privex Engine Failed:', err);
+          });
+        });
+      }
+    </script>
   </body>
 </html>
