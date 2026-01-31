@@ -4,30 +4,35 @@ import Login from './components/Login';
 
 function App() {
   const [user, setUser] = useState(null);
-  const [isChecking, setIsChecking] = useState(true); // Prevents "flicker"
+  const [loading, setLoading] = useState(true); // Prevents flickering
 
-  // CHECK MEMORY ON STARTUP
+  // 1. RUNS WHEN APP STARTS
   useEffect(() => {
-    const savedUser = localStorage.getItem('privex_session');
+    // Check if we have a saved user in the hard drive
+    const savedUser = localStorage.getItem('privex_user');
+    
     if (savedUser) {
+      console.log("Found saved user:", savedUser); // Debugging
       setUser(JSON.parse(savedUser));
     }
-    setIsChecking(false);
+    setLoading(false);
   }, []);
 
-  // SAVE TO MEMORY ON LOGIN
+  // 2. SAVES USER WHEN LOGGING IN
   const handleLogin = (userData) => {
-    localStorage.setItem('privex_session', JSON.stringify(userData));
+    console.log("Saving user to disk:", userData);
+    localStorage.setItem('privex_user', JSON.stringify(userData));
     setUser(userData);
   };
 
-  // WIPE MEMORY ON LOGOUT
+  // 3. WIPES DATA WHEN LOGGING OUT
   const handleLogout = () => {
-    localStorage.removeItem('privex_session');
+    localStorage.removeItem('privex_user');
     setUser(null);
   };
 
-  if (isChecking) return <div style={{background:'#121212', height:'100vh'}} />;
+  // Show a black screen while checking memory (so you don't see login for 0.1s)
+  if (loading) return <div style={{backgroundColor: '#121212', height: '100vh'}} />;
 
   return (
     <div className="App">
