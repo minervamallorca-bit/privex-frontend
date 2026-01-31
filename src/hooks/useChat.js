@@ -1,24 +1,16 @@
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
+import { encryptMessage } from '../services/encryption';
 
-export const useChat = (conversationId) => {
+export const useChat = () => {
   const [messages, setMessages] = useState([
-    { senderEmail: 'System', content: 'Welcome to the secure chat!' }
+    { senderEmail: 'System', content: encryptMessage('System Online. 8K Mode Active.') }
   ]);
 
-  const sendMessage = useCallback((content) => {
-    // 1. Add YOUR message to the list immediately
-    const newMessage = { senderEmail: 'Me', content };
+  const sendMessage = (text) => {
+    const encrypted = encryptMessage(text);
+    const newMessage = { senderEmail: 'Me', content: encrypted, timestamp: Date.now() };
     setMessages((prev) => [...prev, newMessage]);
-
-    // 2. Simulate a "Bot" reply after 1.5 seconds
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev, 
-        { senderEmail: 'Bot', content: 'I received: ' + content }
-      ]);
-    }, 1500);
-
-  }, []);
+  };
 
   return { messages, sendMessage };
 };
