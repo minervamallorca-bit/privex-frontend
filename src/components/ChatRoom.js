@@ -1,48 +1,66 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { db } from '../firebase'; // Connect to the file you just made
+import { db } from '../firebase'; 
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
+
+// TACTICAL SOUND ASSETS (Base64 to avoid file uploads)
+const INCOMING_BEEP = "data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU"; // Short blip placeholder (Simulated)
+// For a real sound, we will use a hosted URL to be safe across devices:
+const SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"; 
 
 export default function ChatRoom({ user, logout }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
+  const audioRef = useRef(new Audio(SOUND_URL)); // Audio Engine
 
-  // 1. LISTEN TO DATABASE (Real-Time Connection)
+  // 1. LISTEN TO DATABASE & PLAY SOUND
   useEffect(() => {
-    // Create a query to ask for messages sorted by time
     const q = query(collection(db, "messages"), orderBy("createdAt"));
 
-    // Open a live channel (websocket) to Google
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const liveMessages = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
+
+      // SOUND LOGIC: If new message exists and it's NOT from me, play sound
+      if (liveMessages.length > 0 && messages.length > 0) {
+        const lastMsg = liveMessages[liveMessages.length - 1];
+        if (lastMsg.sender !== user.name && liveMessages.length > messages.length) {
+            playNotificationSound();
+        }
+      }
+
       setMessages(liveMessages);
     });
 
-    // Close channel when leaving
     return () => unsubscribe();
-  }, []);
+  }, [messages.length, user.name]); // Depend on length to detect changes
 
-  // 2. AUTO-SCROLL TO BOTTOM
+  // Helper to play sound safely
+  const playNotificationSound = () => {
+    audioRef.current.volume = 0.5;
+    audioRef.current.currentTime = 0;
+    audioRef.current.play().catch(e => console.log("Audio blocked by browser:", e));
+  };
+
+  // 2. AUTO-SCROLL
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // 3. SEND MESSAGE TO CLOUD
+  // 3. SEND MESSAGE
   const handleSend = async () => {
     if (!input.trim()) return;
 
-    // Send data to Firestore
     await addDoc(collection(db, "messages"), {
       text: input,
       sender: user.name,
-      createdAt: serverTimestamp(), // Let server decide the time
+      createdAt: serverTimestamp(),
       isSystem: false
     });
 
-    setInput(''); // Clear input
+    setInput(''); 
   };
 
   const handleKeyPress = (e) => {
@@ -101,7 +119,6 @@ export default function ChatRoom({ user, logout }) {
   );
 }
 
-// MATRIX STYLES (Unchanged)
 const styles = {
   container: {
     display: 'flex', flexDirection: 'column', height: '100vh',
