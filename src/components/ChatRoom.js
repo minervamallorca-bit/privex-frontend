@@ -2,18 +2,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase'; 
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
-// TACTICAL SOUND ASSETS (Base64 to avoid file uploads)
-const INCOMING_BEEP = "data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YU"; // Short blip placeholder (Simulated)
-// For a real sound, we will use a hosted URL to be safe across devices:
-const SOUND_URL = "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"; 
+// REAL BASE64 TACTICAL BEEP (No internet download needed)
+const TACTICAL_BEEP = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIQAABQoPEBwdIiYqLS8xMzU4Ojw+QENFRkdKS01QUlVYWlxeYWJkZmhqbG9wcXR3ent9foCDhIWIi4yOkJKUl5ianJ6goqOkpqeoqqyusLKztLe6u72/wcPExsfIysvMzs/Q0tPU1dbX2Nna29ze3+Dj5Ofp6uvs7e7v8PHy9Pf4+fr7/P0AAAAATGF2YzU4LjU0AAAAAAAAAAAAAAAAJAAAAAAAAAAAASAAAAG7AAAAAAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/7////////4AAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/78AAAAAbgAAAAAgAAD/84QGAAAAAAEgAAAAIAEfhP8//tT5ftfzh4Pn9f+39v/v+f/3///H/D/6P6b6H1///6//vwAAAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/78AAAAAbgAAAAAgAAD/84QGAAAAAAEgAAAAIAEfhP8//tT5ftfzh4Pn9f+39v/v+f/3///H/D/6P6b6H1///6//vwAAAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/78AAAAAbgAAAAAgAAD/84QGAAAAAAEgAAAAIAEfhP8//tT5ftfzh4Pn9f+39v/v+f/3///H/D/6P6b6H1///6//vwAAAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/78AAAAAbgAAAAAgAAD/84QGAAAAAAEgAAAAIAEfhP8//tT5ftfzh4Pn9f+39v/v+f/3///H/D/6P6b6H1///6//vwAAAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA";
 
 export default function ChatRoom({ user, logout }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [soundEnabled, setSoundEnabled] = useState(false);
   const messagesEndRef = useRef(null);
-  const audioRef = useRef(new Audio(SOUND_URL)); // Audio Engine
+  
+  // Audio Player
+  const audioRef = useRef(new Audio(TACTICAL_BEEP)); 
 
-  // 1. LISTEN TO DATABASE & PLAY SOUND
+  // 1. LISTEN TO DATABASE
   useEffect(() => {
     const q = query(collection(db, "messages"), orderBy("createdAt"));
 
@@ -23,11 +24,11 @@ export default function ChatRoom({ user, logout }) {
         ...doc.data()
       }));
 
-      // SOUND LOGIC: If new message exists and it's NOT from me, play sound
+      // Play sound ONLY if it's a new message and NOT from me
       if (liveMessages.length > 0 && messages.length > 0) {
         const lastMsg = liveMessages[liveMessages.length - 1];
         if (lastMsg.sender !== user.name && liveMessages.length > messages.length) {
-            playNotificationSound();
+            playSound();
         }
       }
 
@@ -35,13 +36,15 @@ export default function ChatRoom({ user, logout }) {
     });
 
     return () => unsubscribe();
-  }, [messages.length, user.name]); // Depend on length to detect changes
+  }, [messages.length, user.name]); 
 
-  // Helper to play sound safely
-  const playNotificationSound = () => {
-    audioRef.current.volume = 0.5;
+  // Helper: Play Sound safely
+  const playSound = () => {
+    // Reset sound to start and play
     audioRef.current.currentTime = 0;
-    audioRef.current.play().catch(e => console.log("Audio blocked by browser:", e));
+    audioRef.current.play()
+      .then(() => setSoundEnabled(true)) // If success, mark as enabled
+      .catch(e => console.log("Sound blocked until interaction"));
   };
 
   // 2. AUTO-SCROLL
@@ -52,14 +55,12 @@ export default function ChatRoom({ user, logout }) {
   // 3. SEND MESSAGE
   const handleSend = async () => {
     if (!input.trim()) return;
-
     await addDoc(collection(db, "messages"), {
       text: input,
       sender: user.name,
       createdAt: serverTimestamp(),
       isSystem: false
     });
-
     setInput(''); 
   };
 
@@ -73,10 +74,16 @@ export default function ChatRoom({ user, logout }) {
       <div style={styles.header}>
         <div style={styles.status}>
             <span style={styles.dot}></span>
-            <span>UPLINK_ESTABLISHED: {messages.length} MSGS</span>
+            <span>UPLINK_ACTIVE</span>
         </div>
+        
+        {/* SOUND CHECK BUTTON */}
+        <button onClick={playSound} style={styles.soundBtn}>
+           {soundEnabled ? '🔊 ON' : '🔇 TEST AUDIO'}
+        </button>
+
         <button onClick={logout} style={styles.logoutBtn}>
-            DISCONNECT 🚫
+            EXIT
         </button>
       </div>
 
@@ -112,7 +119,7 @@ export default function ChatRoom({ user, logout }) {
           placeholder="TRANSMIT DATA..."
         />
         <button onClick={handleSend} style={styles.sendBtn}>
-            📤 SEND
+            📤
         </button>
       </div>
     </div>
@@ -133,7 +140,11 @@ const styles = {
   dot: { width: '8px', height: '8px', background: '#00ff00', borderRadius: '50%', boxShadow: '0 0 5px #00ff00' },
   logoutBtn: {
     background: 'transparent', border: '1px solid #ff3333', color: '#ff3333',
-    padding: '5px 10px', fontSize: '10px', cursor: 'pointer', fontFamily: 'monospace'
+    padding: '5px 10px', fontSize: '10px', cursor: 'pointer', fontFamily: 'monospace', marginLeft: '10px'
+  },
+  soundBtn: {
+    background: '#222', border: '1px solid #00ff00', color: '#00ff00',
+    padding: '5px 10px', fontSize: '10px', cursor: 'pointer', fontFamily: 'monospace', borderRadius: '4px'
   },
   chatWindow: {
     flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px'
