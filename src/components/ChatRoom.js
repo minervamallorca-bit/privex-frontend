@@ -2,18 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase'; 
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
 
-// REAL BASE64 TACTICAL BEEP (No internet download needed)
-const TACTICAL_BEEP = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIQAABQoPEBwdIiYqLS8xMzU4Ojw+QENFRkdKS01QUlVYWlxeYWJkZmhqbG9wcXR3ent9foCDhIWIi4yOkJKUl5ianJ6goqOkpqeoqqyusLKztLe6u72/wcPExsfIysvMzs/Q0tPU1dbX2Nna29ze3+Dj5Ofp6uvs7e7v8PHy9Pf4+fr7/P0AAAAATGF2YzU4LjU0AAAAAAAAAAAAAAAAJAAAAAAAAAAAASAAAAG7AAAAAAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/7////////4AAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/78AAAAAbgAAAAAgAAD/84QGAAAAAAEgAAAAIAEfhP8//tT5ftfzh4Pn9f+39v/v+f/3///H/D/6P6b6H1///6//vwAAAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/78AAAAAbgAAAAAgAAD/84QGAAAAAAEgAAAAIAEfhP8//tT5ftfzh4Pn9f+39v/v+f/3///H/D/6P6b6H1///6//vwAAAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/78AAAAAbgAAAAAgAAD/84QGAAAAAAEgAAAAIAEfhP8//tT5ftfzh4Pn9f+39v/v+f/3///H/D/6P6b6H1///6//vwAAAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA//OEBgAAAAABIAAAACABH4T/P/7U+X7X84eD5/X/t/b/7/n/9///x/w/+j+m+h9f//+v/78AAAAAbgAAAAAgAAD/84QGAAAAAAEgAAAAIAEfhP8//tT5ftfzh4Pn9f+39v/v+f/3///H/D/6P6b6H1///6//vwAAAABuAAAAACAAAP/zhAYAAAAAASAAAAAgAR+E/z/+1Pl+1/OHg+f1/7f2/+/5//f//8f8P/o/pvofX///r/+/AAAAAG4AAAAAIAAA";
-
 export default function ChatRoom({ user, logout }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [soundEnabled, setSoundEnabled] = useState(false);
   const messagesEndRef = useRef(null);
   
-  // Audio Player
-  const audioRef = useRef(new Audio(TACTICAL_BEEP)); 
-
   // 1. LISTEN TO DATABASE
   useEffect(() => {
     const q = query(collection(db, "messages"), orderBy("createdAt"));
@@ -24,11 +17,11 @@ export default function ChatRoom({ user, logout }) {
         ...doc.data()
       }));
 
-      // Play sound ONLY if it's a new message and NOT from me
+      // If new message arrives from someone else, BEEP
       if (liveMessages.length > 0 && messages.length > 0) {
         const lastMsg = liveMessages[liveMessages.length - 1];
         if (lastMsg.sender !== user.name && liveMessages.length > messages.length) {
-            playSound();
+            playDigitalBeep();
         }
       }
 
@@ -38,13 +31,33 @@ export default function ChatRoom({ user, logout }) {
     return () => unsubscribe();
   }, [messages.length, user.name]); 
 
-  // Helper: Play Sound safely
-  const playSound = () => {
-    // Reset sound to start and play
-    audioRef.current.currentTime = 0;
-    audioRef.current.play()
-      .then(() => setSoundEnabled(true)) // If success, mark as enabled
-      .catch(e => console.log("Sound blocked until interaction"));
+  // 🔊 THE SYNTHESIZER (Generates Sound Mathematically)
+  const playDigitalBeep = () => {
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContext) return; // Browser doesn't support it
+
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        // Configure the tone (Science Fiction Chirp)
+        osc.type = 'sine'; 
+        osc.frequency.setValueAtTime(1200, ctx.currentTime); // High pitch start
+        osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.1); // Drop pitch fast
+
+        // Configure volume
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+
+        // Connect and Play
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.1);
+    } catch (e) {
+        console.error("Audio Error:", e);
+    }
   };
 
   // 2. AUTO-SCROLL
@@ -77,9 +90,9 @@ export default function ChatRoom({ user, logout }) {
             <span>UPLINK_ACTIVE</span>
         </div>
         
-        {/* SOUND CHECK BUTTON */}
-        <button onClick={playSound} style={styles.soundBtn}>
-           {soundEnabled ? '🔊 ON' : '🔇 TEST AUDIO'}
+        {/* TEST BUTTON */}
+        <button onClick={playDigitalBeep} style={styles.soundBtn}>
+           🔊 TEST SOUND
         </button>
 
         <button onClick={logout} style={styles.logoutBtn}>
@@ -87,7 +100,7 @@ export default function ChatRoom({ user, logout }) {
         </button>
       </div>
 
-      {/* CHAT AREA */}
+      {/* CHAT WINDOW */}
       <div style={styles.chatWindow}>
         {messages.map((msg) => (
           <div 
