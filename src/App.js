@@ -59,7 +59,7 @@ const DecryptedText = ({ text }) => {
 };
 
 // ---------------------------------------------------------
-// 3. MAIN APPLICATION: UMBRA V16 (STEALTH MODE)
+// 3. MAIN APPLICATION: UMBRA V17 (LIQUID DISPLAY)
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -241,7 +241,7 @@ function App() {
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// STEALTH PROTOCOL V16.0</div>
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// UPLINK PROTOCOL V17.0</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -256,27 +256,23 @@ function App() {
     );
   }
 
-  // --- V16: STEALTH LINK GENERATION ---
   const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
   const callUrl = `https://meet.jit.si/UMBRA_SECURE_${secureHash}`;
-  
-  // We add config params to HIDE ads, watermarks, and deep linking (mobile app promotion)
   const configParams = [
     'config.startWithAudioMuted=true',
     'config.startWithVideoMuted=true',
-    'config.disableDeepLinking=true', // PREVENTS "DOWNLOAD APP" PAGE
-    'interfaceConfig.MOBILE_APP_PROMO=false', // HIDES PROMO BANNER
-    'interfaceConfig.SHOW_JITSI_WATERMARK=false', // HIDES WATERMARK
+    'config.disableDeepLinking=true',
+    'interfaceConfig.MOBILE_APP_PROMO=false',
+    'interfaceConfig.SHOW_JITSI_WATERMARK=false',
     'interfaceConfig.SHOW_BRAND_WATERMARK=false',
     'interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false',
     'interfaceConfig.HIDE_DEEP_LINKING_LOGO=true'
   ].join('&');
-
   const callSrc = `${callUrl}?lang=en#${configParams}`;
 
   return (
     <div style={styles.container}>
-      {/* HEADER */}
+      {/* HEADER: Respects Safe Area */}
       <div style={styles.header}>
         <div>
           <span style={{fontWeight:'bold', display:'block', letterSpacing:'2px'}}>UMBRA // {user.channel}</span>
@@ -296,15 +292,10 @@ function App() {
         </div>
       </div>
 
-      {/* VIEWSCREEN (STEALTH MODE) */}
+      {/* VIEWSCREEN */}
       {videoMode && (
-        <div style={{height: '40vh', borderBottom: '1px solid #00ff00', background: '#000'}}>
-            <iframe 
-                src={callSrc} 
-                style={{width:'100%', height:'100%', border:'none'}} 
-                allow="camera; microphone; fullscreen; display-capture" 
-                title="Viewscreen" 
-            />
+        <div style={{height: '35%', borderBottom: '1px solid #00ff00', background: '#000'}}>
+            <iframe src={callSrc} style={{width:'100%', height:'100%', border:'none'}} allow="camera; microphone; fullscreen; display-capture" title="Viewscreen" />
         </div>
       )}
 
@@ -326,7 +317,6 @@ function App() {
                     {msg.type === 'text' && <DecryptedText text={msg.text} />}
                     {msg.type === 'image' && <img src={msg.text} alt="content" style={{maxWidth:'100%', borderRadius:'5px'}} />}
                     {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
-                    
                     {(msg.type === 'video_call' || msg.type === 'voice_call') && (
                       <button onClick={joinCallInternal} style={styles.link}>
                         {msg.type === 'video_call' ? '🎥 OPEN SECURE FEED' : '📞 OPEN SECURE FEED'}
@@ -340,7 +330,7 @@ function App() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* INPUT AREA */}
+      {/* INPUT AREA: Respects Bottom Safe Area */}
       <div style={styles.inputArea}>
         <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
         <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
@@ -352,19 +342,66 @@ function App() {
   );
 }
 
+// --- UPDATED STYLES FOR MOBILE ---
 const styles = {
-  container: { height: '100vh', background: '#080808', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex', flexDirection: 'column' },
-  box: { margin: 'auto', border: '1px solid #00ff00', padding: '50px', width:'90%', maxWidth:'400px', textAlign: 'center', borderRadius: '2px', background: '#000', boxShadow: '0 0 20px rgba(0,255,0,0.1)' },
+  // Use 'dvh' (dynamic viewport height) to ignore address bars
+  container: { 
+    height: '100dvh', 
+    width: '100vw',
+    background: '#080808', 
+    color: '#00ff00', 
+    fontFamily: 'Courier New, monospace', 
+    display: 'flex', 
+    flexDirection: 'column',
+    overflow: 'hidden' // Prevent full page bounce
+  },
+  box: { margin: 'auto', border: '1px solid #00ff00', padding: '30px', width:'85%', maxWidth:'400px', textAlign: 'center', borderRadius: '2px', background: '#000', boxShadow: '0 0 20px rgba(0,255,0,0.1)' },
   input: { display: 'block', width: '100%', boxSizing:'border-box', background: '#0a0a0a', border: '1px solid #333', color: '#00ff00', padding: '15px', fontSize: '16px', outline: 'none', fontFamily:'monospace', marginBottom:'15px', borderRadius:'2px' },
   btn: { background: '#00ff00', color: 'black', border: 'none', padding: '15px', width: '100%', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px', borderRadius: '2px', letterSpacing:'1px' },
-  header: { padding: '15px 20px', background: '#0a0a0a', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  chatArea: { flex: 1, overflowY: 'auto', padding: '20px', scrollBehavior: 'smooth', backgroundImage: 'linear-gradient(rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.95)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' },
-  myMsg: { background: 'rgba(0, 50, 0, 0.3)', border: '1px solid #004400', padding: '12px', borderRadius: '2px', maxWidth: '80%', color: '#e0ffe0' },
-  otherMsg: { background: '#111', border: '1px solid #333', padding: '12px', borderRadius: '2px', maxWidth: '80%', color: '#ccc' },
-  inputArea: { padding: '15px', background: '#0a0a0a', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '10px', alignItems: 'center' },
-  inputBar: { flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '12px', fontFamily: 'monospace', outline: 'none', borderRadius: '2px' },
-  iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '45px', height: '45px', fontSize: '20px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  link: { color: '#00ff00', border: '1px dashed #00ff00', padding: '10px', textDecoration: 'none', display: 'block', textAlign: 'center', marginTop: '5px', background: 'rgba(0,255,0,0.05)', cursor:'pointer', width: '100%' }
+  
+  // Header Padding handles the Top Notch (env)
+  header: { 
+    paddingTop: 'calc(10px + env(safe-area-inset-top))', 
+    paddingBottom: '10px',
+    paddingLeft: '15px',
+    paddingRight: '15px',
+    background: '#0a0a0a', 
+    borderBottom: '1px solid #1f1f1f', 
+    display: 'flex', 
+    justifyContent: 'space-between', 
+    alignItems: 'center',
+    flexShrink: 0 
+  },
+  
+  chatArea: { 
+    flex: 1, 
+    overflowY: 'auto', 
+    padding: '15px', 
+    scrollBehavior: 'smooth', 
+    backgroundImage: 'linear-gradient(rgba(0, 0, 0, 0.95), rgba(0, 0, 0, 0.95)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")',
+    WebkitOverflowScrolling: 'touch' // Smooth scroll on iOS
+  },
+  
+  myMsg: { background: 'rgba(0, 50, 0, 0.3)', border: '1px solid #004400', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#e0ffe0', wordWrap: 'break-word' },
+  otherMsg: { background: '#111', border: '1px solid #333', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#ccc', wordWrap: 'break-word' },
+  
+  // Input Area Padding handles the Bottom Swipe Bar (env)
+  inputArea: { 
+    paddingTop: '10px',
+    paddingBottom: 'calc(10px + env(safe-area-inset-bottom))', 
+    paddingLeft: '10px',
+    paddingRight: '10px',
+    background: '#0a0a0a', 
+    borderTop: '1px solid #1f1f1f', 
+    display: 'flex', 
+    gap: '8px', 
+    alignItems: 'center',
+    flexShrink: 0
+  },
+  
+  inputBar: { flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '12px', fontFamily: 'monospace', outline: 'none', borderRadius: '2px', minWidth: 0 }, // minWidth 0 prevents flexbox blowout
+  iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '40px', height: '40px', fontSize: '18px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  link: { color: '#00ff00', border: '1px dashed #00ff00', padding: '10px', textDecoration: 'none', display: 'block', textAlign: 'center', marginTop: '5px', background: 'rgba(0,255,0,0.05)', cursor:'pointer', width: '100%', fontSize: '12px' }
 };
 
 export default App;
