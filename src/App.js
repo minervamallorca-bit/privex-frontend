@@ -17,6 +17,11 @@ const playSound = (type) => {
     oscillator.frequency.setValueAtTime(0, audioCtx.currentTime + 0.1);
     oscillator.frequency.setValueAtTime(800, audioCtx.currentTime + 0.2);
     gainNode.gain.value = 0.05;
+  } else if (type === 'error') {
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(100, audioCtx.currentTime);
+    oscillator.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 0.3);
+    gainNode.gain.value = 0.1;
   } else {
     oscillator.frequency.setValueAtTime(type === 'purge' ? 150 : 800, audioCtx.currentTime);
     oscillator.type = 'sine';
@@ -33,7 +38,7 @@ const playSound = (type) => {
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION: UMBRA V23.1 (VOICE & VIDEO)
+// 2. MAIN APPLICATION: UMBRA V24 (AUTH & SAVE)
 // ---------------------------------------------------------
 function App() {
   // --- STATE ---
@@ -45,8 +50,12 @@ function App() {
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
   
+  // AUTH INPUTS
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
+  const [inputPassword, setInputPassword] = useState(''); // V24
+  const [saveLogin, setSaveLogin] = useState(false); // V24
+  const [loginError, setLoginError] = useState(''); // V24
   
   const [friendPhone, setFriendPhone] = useState('');
   const [addStatus, setAddStatus] = useState('');
@@ -55,7 +64,7 @@ function App() {
   const [input, setInput] = useState('');
   const [callActive, setCallActive] = useState(false);
   const [callStatus, setCallStatus] = useState('IDLE');
-  const [isVideoCall, setIsVideoCall] = useState(true); // Track call type
+  const [isVideoCall, setIsVideoCall] = useState(true);
   
   const [burnMode, setBurnMode] = useState(false); 
   const [isRecording, setIsRecording] = useState(false); 
@@ -78,31 +87,89 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // --- AUTH ---
+  // --- V24: AUTO-LOGIN CHECK ---
+  useEffect(() => {
+    const storedCreds = localStorage.getItem('umbra_creds');
+    if (storedCreds) {
+      const { phone, password } = JSON.parse(storedCreds);
+      // Attempt silent login
+      const autoLogin = async () => {
+        const userDocRef = doc(db, "users", phone);
+        const userSnap = await getDoc(userDocRef);
+        if (userSnap.exists() && userSnap.data().password === password) {
+           setMyProfile({ phone: phone, name: userSnap.data().name });
+           setView('APP');
+        }
+      };
+      autoLogin();
+    }
+  }, []);
+
+  // --- V24: HANDLE LOGIN ---
   const handleLogin = async (e) => {
     e.preventDefault();
+    setLoginError('');
     const cleanPhone = inputPhone.replace(/\D/g, ''); 
-    if (cleanPhone.length < 5 || !inputName.trim()) return;
+    
+    if (cleanPhone.length < 5 || !inputName.trim() || !inputPassword.trim()) {
+        setLoginError('MISSING CREDENTIALS');
+        playSound('error');
+        return;
+    }
 
     const userDocRef = doc(db, "users", cleanPhone);
     const userSnap = await getDoc(userDocRef);
 
     if (!userSnap.exists()) {
-      await setDoc(userDocRef, { phone: cleanPhone, name: inputName, createdAt: serverTimestamp() });
+      // REGISTER NEW USER (Set Password)
+      await setDoc(userDocRef, { 
+          phone: cleanPhone, 
+          name: inputName, 
+          password: inputPassword, // Storing password
+          createdAt: serverTimestamp() 
+      });
     } else {
-      await updateDoc(userDocRef, { name: inputName });
+      // LOGIN EXISTING (Check Password)
+      const data = userSnap.data();
+      if (data.password && data.password !== inputPassword) {
+          setLoginError('ACCESS DENIED: WRONG PASSWORD');
+          playSound('error');
+          return;
+      }
+      // Update name just in case
+      if (data.name !== inputName) await updateDoc(userDocRef, { name: inputName });
     }
     
+    // V24: SAVE LOGIN IF CHECKED
+    if (saveLogin) {
+        localStorage.setItem('umbra_creds', JSON.stringify({ phone: cleanPhone, password: inputPassword }));
+    } else {
+        localStorage.removeItem('umbra_creds');
+    }
+
     setMyProfile({ phone: cleanPhone, name: inputName });
     setView('APP');
   };
 
+  // V24: TOGGLE SAVE LOGIN WITH WARNING
+  const toggleSaveLogin = () => {
+      if (!saveLogin) {
+          // If turning ON, show warning
+          const confirm = window.confirm("⚠️ SECURITY WARNING ⚠️\n\nSaving login details stores your credentials locally on this device.\n\nIf this device is compromised, your UMBRA identity will be accessible.\n\nDo you accept this operational risk?");
+          if (confirm) setSaveLogin(true);
+      } else {
+          setSaveLogin(false);
+      }
+  };
+
   const handleLogout = () => {
     playSound('purge');
+    localStorage.removeItem('umbra_creds'); // Clear saved data on manual logout
     setView('LOGIN');
     setMyProfile(null);
     setMessages([]);
     setActiveFriend(null);
+    setInputPassword(''); // Clear password field
   };
 
   // --- LISTENERS ---
@@ -246,8 +313,7 @@ function App() {
     await batch.commit();
   };
 
-  // --- V23.1: CALL LOGIC (VIDEO & VOICE) ---
-  // mode: 'video' or 'audio'
+  // --- CALL LOGIC ---
   const startCall = async (mode) => {
     setCallActive(true);
     setCallStatus('DIALING...');
@@ -285,7 +351,6 @@ function App() {
     const data = callDoc.data();
     const offer = JSON.parse(data.sdp);
     
-    // Check mode
     const incomingMode = data.mode || 'video';
     setIsVideoCall(incomingMode === 'video');
 
@@ -342,16 +407,29 @@ function App() {
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE NETWORK V23.1</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V24</div>
+              
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
-              <button style={styles.btn} onClick={handleLogin}>ENTER</button>
+              
+              {/* V24: PASSWORD INPUT */}
+              <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
+              
+              {/* V24: SAVE LOGIN CHECKBOX */}
+              <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'20px', justifyContent:'center'}}>
+                  <input type="checkbox" checked={saveLogin} onChange={toggleSaveLogin} style={{accentColor:'#00ff00', cursor:'pointer'}} />
+                  <span style={{color:'#00ff00', fontSize:'12px'}}>SAVE CREDENTIALS</span>
+              </div>
+
+              {loginError && <div style={{color:'red', fontSize:'12px', marginBottom:'15px', fontWeight:'bold'}}>{loginError}</div>}
+              
+              <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
            </div>
         </div>
      );
   }
 
-  // --- RENDER: APP LAYOUT ---
+  // --- RENDER: APP ---
   return (
     <div style={styles.container}>
       
@@ -399,7 +477,7 @@ function App() {
           </div>
       </div>
 
-      {/* MAIN (CHAT) */}
+      {/* MAIN */}
       <div style={{...styles.main, display: isMobile && mobileView === 'LIST' ? 'none' : 'flex' }}>
           {activeFriend ? (
               <>
@@ -413,23 +491,17 @@ function App() {
                     <div style={{display:'flex', gap:'5px', flexShrink: 0}}>
                         <button onClick={wipeChat} style={{...styles.iconBtn, color:'#FF0000', borderColor:'#333'}}>🗑️</button>
                         <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>🔥</button>
-                        
                         {!callActive && (
                             <>
-                                {/* V23.1: BOTH BUTTONS */}
                                 <button onClick={() => startCall('audio')} style={styles.iconBtn}>📞</button>
                                 <button onClick={() => startCall('video')} style={styles.iconBtn}>🎥</button>
                             </>
                         )}
-                        
-                        {/* INCOMING ANSWER BUTTON */}
                         {callStatus.includes('INCOMING') && <button onClick={answerCall} style={{...styles.iconBtn, background:'#00ff00', color:'black'}}>📞</button>}
-                        
                         {callActive && <button onClick={endCall} style={{...styles.iconBtn, color:'red', borderColor:'red'}}>X</button>}
                     </div>
                 </div>
 
-                {/* VIDEO FEED (Only show if video call) */}
                 {callActive && isVideoCall && (
                     <div style={{height: '35%', borderBottom: '1px solid #00ff00', background: '#000', position:'relative'}}>
                         <video ref={remoteVideoRef} autoPlay playsInline style={{width:'100%', height:'100%', objectFit:'cover'}} />
@@ -438,7 +510,6 @@ function App() {
                         </div>
                     </div>
                 )}
-                {/* AUDIO FEED (Visual Placeholder) */}
                 {callActive && !isVideoCall && (
                      <div style={{height: '100px', borderBottom: '1px solid #00ff00', background: '#000', display:'flex', alignItems:'center', justifyContent:'center', color:'#00ff00'}}>
                          <div>AUDIO ENCRYPTED LINK ACTIVE...</div>
