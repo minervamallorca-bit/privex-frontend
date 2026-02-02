@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from './firebase'; 
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // ---------------------------------------------------------
@@ -35,6 +35,7 @@ function App() {
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [typingUsers, setTypingUsers] = useState([]); // <--- V10: LIST OF TYPERS
   
   // Login Inputs
   const [loginName, setLoginName] = useState('');
@@ -44,27 +45,52 @@ function App() {
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const lastTypingTime = useRef(0); // <--- V10: THROTTLE
 
-  // --- DATABASE LISTENER (TROJAN HORSE METHOD) ---
+  // --- DATABASE LISTENER (MESSAGES) ---
   useEffect(() => {
     if (!user) return;
     
-    // We query the MAIN collection (which we know works)
-    // We grab the last 100 messages to keep it fast
     const q = query(collection(db, "messages"), orderBy("createdAt", "asc"), limit(100));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      
-      // CLIENT-SIDE FILTERING:
-      // Only show messages that match our channel OR are global (legacy)
       const filteredMessages = allMessages.filter(msg => {
-        // If message has no channel, show it in 'MAIN'
         const msgChannel = msg.channel || 'MAIN';
         return msgChannel === user.channel;
       });
-
       setMessages(filteredMessages);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // --- V10: DATABASE LISTENER (TYPING STATUS) ---
+  useEffect(() => {
+    if (!user) return;
+
+    // Listen to "active_typing" collection
+    // We get ALL typing events, then filter for our channel + time
+    const q = query(collection(db, "active_typing"));
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+        const now = Date.now();
+        const activeTypers = [];
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            // Check if: 
+            // 1. Same Channel
+            // 2. NOT me
+            // 3. Updated in last 4 seconds
+            if (data.channel === user.channel && data.user !== user.name) {
+                // Check timestamp (Firestore timestamp or client estimate)
+                if (data.timestamp && (now - data.timestamp) < 4000) {
+                    activeTypers.push(data.user);
+                }
+            }
+        });
+        setTypingUsers(activeTypers);
     });
 
     return () => unsubscribe();
@@ -73,7 +99,27 @@ function App() {
   // --- AUTO SCROLL ---
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, typingUsers]); // Scroll when someone types too
+
+  // --- V10: TYPING HANDLER ---
+  const handleInputChange = async (e) => {
+    setInput(e.target.value);
+    
+    if (!user) return;
+
+    // Only update database once every 2 seconds to save writes
+    const now = Date.now();
+    if (now - lastTypingTime.current > 2000) {
+        lastTypingTime.current = now;
+        // Create a unique ID for this user's typing status
+        const docId = `${user.channel}_${user.name}`;
+        await setDoc(doc(db, "active_typing", docId), {
+            user: user.name,
+            channel: user.channel,
+            timestamp: now // Client side timestamp for simple sync
+        });
+    }
+  };
 
   // --- SEND FUNCTIONS ---
   const handleSend = async () => {
@@ -84,13 +130,11 @@ function App() {
 
   const sendMessage = async (content, type) => {
     if (!user) return;
-    
-    // We write to the MAIN collection, but we tag it with the channel
     await addDoc(collection(db, "messages"), {
       text: content, 
       type: type, 
       sender: user.name,
-      channel: user.channel, // <--- THE TAG
+      channel: user.channel, 
       createdAt: serverTimestamp() 
     });
   };
@@ -161,7 +205,7 @@ function App() {
     return (
       <div style={styles.container}>
         <div style={styles.box}>
-          <h1 style={{color: '#00ff00', letterSpacing: '5px', marginBottom:'30px'}}>PRIVEX V9.1 (PATCHED)</h1>
+          <h1 style={{color: '#00ff00', letterSpacing: '5px', marginBottom:'30px'}}>PRIVEX V10.0 (UPLINK)</h1>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <div>
               <label style={styles.label}>IDENTITY</label>
@@ -200,7 +244,7 @@ function App() {
             <div style={{width:'10px', height:'10px', background: user.channel === 'MAIN' ? 'red' : '#00ff00', borderRadius:'50%', boxShadow: '0 0 10px #00ff00'}}></div>
             <span style={{fontWeight:'bold'}}>FREQ: {user.channel}</span>
           </div>
-          <span style={{fontSize:'10px', opacity:0.6, marginTop:'4px'}}>FILTER: ACTIVE</span>
+          <span style={{fontSize:'10px', opacity:0.6, marginTop:'4px'}}>PRESENCE: ACTIVE</span>
         </div>
         
         <div style={{display:'flex', gap: '10px'}}>
@@ -238,6 +282,14 @@ function App() {
              </div>
           </div>
         ))}
+        
+        {/* V10: TYPING INDICATOR */}
+        {typingUsers.length > 0 && (
+            <div style={{color: '#00ff00', fontSize: '12px', padding: '10px', animation: 'blink 1.5s infinite'}}>
+                {typingUsers.join(', ').toUpperCase()} IS ENCRYPTING DATA...
+            </div>
+        )}
+
         {uploading && <div style={{textAlign:'center', color:'#00ff00', animation: 'blink 1s infinite'}}>UPLOADING DATA PACKET...</div>}
         <div ref={messagesEndRef} />
       </div>
@@ -253,7 +305,7 @@ function App() {
         
         <input 
           value={input} 
-          onChange={(e) => setInput(e.target.value)} 
+          onChange={handleInputChange} // <--- V10: Updated handler
           placeholder={`MESSAGE TO ${user.channel}...`} 
           style={styles.inputBar}
           onKeyPress={(e) => e.key === 'Enter' && handleSend()}
@@ -264,7 +316,7 @@ function App() {
   );
 }
 
-// --- STYLES (NO CHANGES) ---
+// --- STYLES ---
 const styles = {
   container: { height: '100vh', background: '#050505', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex', flexDirection: 'column' },
   box: { margin: 'auto', border: '1px solid #00ff00', padding: '40px', width:'90%', maxWidth:'400px', textAlign: 'center', borderRadius: '5px', boxShadow: '0 0 30px rgba(0,255,0,0.15)', background: '#000' },
