@@ -3,15 +3,13 @@ import { db, storage } from './firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// NOTE: We are NOT importing './App.css' to prevent build crashes.
-// All styles are contained in the 'styles' object at the bottom.
-
 // ---------------------------------------------------------
 // 1. DECRYPTION COMPONENT (The Matrix Effect)
 // ---------------------------------------------------------
 const DecryptedText = ({ text }) => {
   const [display, setDisplay] = useState('');
   const chars = '!@#$%^&*()_+-=[]{}|;:,.<>?0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  
   useEffect(() => {
     let iteration = 0;
     const interval = setInterval(() => {
@@ -21,34 +19,44 @@ const DecryptedText = ({ text }) => {
       }).join(''));
       if (iteration >= text.length) clearInterval(interval);
       iteration += 1 / 3; 
-    }, 50); 
+    }, 40); 
     return () => clearInterval(interval);
   }, [text]);
+
   return <span>{display}</span>;
 };
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION (Login + Chat)
+// 2. MAIN APPLICATION
 // ---------------------------------------------------------
 function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(null); // { name, id, channel }
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
   
+  // Login Inputs
+  const [loginName, setLoginName] = useState('');
+  const [loginChannel, setLoginChannel] = useState('MAIN_LOBBY');
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  // --- DATABASE LISTENER ---
+  // --- DATABASE LISTENER (Scoped to Channel) ---
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, "messages"), orderBy("createdAt"));
+    
+    // We now look inside "channels" -> "CHANNEL_NAME" -> "messages"
+    const channelPath = `channels/${user.channel}/messages`;
+    const q = query(collection(db, channelPath), orderBy("createdAt"));
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
+
     return () => unsubscribe();
   }, [user]);
 
@@ -65,7 +73,10 @@ function App() {
   };
 
   const sendMessage = async (content, type) => {
-    await addDoc(collection(db, "messages"), {
+    if (!user) return;
+    const channelPath = `channels/${user.channel}/messages`;
+    
+    await addDoc(collection(db, channelPath), {
       text: content, 
       type: type, 
       sender: user.name, 
@@ -90,7 +101,7 @@ function App() {
       await sendMessage(url, type);
     } catch (err) {
       console.error(err);
-      alert("Upload Failed");
+      alert("Encryption Failed (Upload Error)");
     }
     setUploading(false);
   };
@@ -120,9 +131,20 @@ function App() {
   };
 
   const startCall = (videoMode) => {
-    const roomCode = Math.random().toString(36).substring(7);
-    const callUrl = `https://meet.jit.si/PRIVEX_SECURE_${roomCode}`;
+    // Generate a secure room based on the current channel so everyone lands in the same call
+    const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
+    const callUrl = `https://meet.jit.si/PRIVEX_${secureHash}_${Math.floor(Math.random() * 1000)}`;
     sendMessage(callUrl, videoMode ? 'video_call' : 'voice_call');
+  };
+
+  // --- LOGIN LOGIC ---
+  const handleLogin = (e) => {
+    e.preventDefault();
+    if (loginName.trim()) {
+      // Normalize channel name to uppercase/no-spaces
+      const safeChannel = loginChannel.trim().toUpperCase().replace(/\s/g, '_') || 'MAIN_LOBBY';
+      setUser({ name: loginName, id: Date.now(), channel: safeChannel });
+    }
   };
 
   // --- RENDER: LOGIN SCREEN ---
@@ -130,14 +152,29 @@ function App() {
     return (
       <div style={styles.container}>
         <div style={styles.box}>
-          <h1 style={{color: '#00ff00', letterSpacing: '5px'}}>PRIVEX V8.0 (STABLE)</h1>
-          <form onSubmit={(e) => {
-            e.preventDefault();
-            const name = e.target.elements.name.value;
-            if (name.trim()) setUser({ name, id: Date.now() });
-          }}>
-            <input name="name" type="text" placeholder="IDENTITY REQUIRED" style={styles.input} />
-            <button type="submit" style={styles.btn}>ACCESS</button>
+          <h1 style={{color: '#00ff00', letterSpacing: '5px', marginBottom:'30px'}}>PRIVEX V9.0 (SECURE)</h1>
+          <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
+            <div>
+              <label style={styles.label}>IDENTITY</label>
+              <input 
+                value={loginName}
+                onChange={e => setLoginName(e.target.value)}
+                type="text" 
+                placeholder="OPERATOR NAME" 
+                style={styles.input} 
+              />
+            </div>
+            <div>
+              <label style={styles.label}>FREQUENCY (ROOM)</label>
+              <input 
+                value={loginChannel}
+                onChange={e => setLoginChannel(e.target.value)}
+                type="text" 
+                placeholder="DEFAULT: MAIN_LOBBY" 
+                style={styles.input} 
+              />
+            </div>
+            <button type="submit" style={styles.btn}>ESTABLISH UPLINK</button>
           </form>
         </div>
       </div>
@@ -149,23 +186,34 @@ function App() {
     <div style={styles.container}>
       {/* HEADER */}
       <div style={styles.header}>
-        <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
-          <div style={{width:'10px', height:'10px', background:'#00ff00', borderRadius:'50%', boxShadow: '0 0 10px #00ff00'}}></div>
-          <span style={{fontWeight:'bold'}}>SECURE_CHANNEL</span>
+        <div style={{display:'flex', flexDirection:'column'}}>
+          <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+            <div style={{width:'10px', height:'10px', background:'#00ff00', borderRadius:'50%', boxShadow: '0 0 10px #00ff00'}}></div>
+            <span style={{fontWeight:'bold'}}>FREQ: {user.channel}</span>
+          </div>
+          <span style={{fontSize:'10px', opacity:0.6, marginTop:'4px'}}>ENCRYPTION: AES-256 (SIMULATED)</span>
         </div>
+        
         <div style={{display:'flex', gap: '10px'}}>
-          <button onClick={() => startCall(false)} style={styles.iconBtn}>📞</button>
-          <button onClick={() => startCall(true)} style={styles.iconBtn}>🎥</button>
-          <button onClick={() => setUser(null)} style={{...styles.iconBtn, color:'red', borderColor:'red'}}>EXIT</button>
+          <button onClick={() => startCall(false)} style={styles.iconBtn} title="Voice Call">📞</button>
+          <button onClick={() => startCall(true)} style={styles.iconBtn} title="Video Call">🎥</button>
+          <button onClick={() => setUser(null)} style={{...styles.iconBtn, color:'red', borderColor:'red'}} title="Disconnect">X</button>
         </div>
       </div>
 
       {/* MESSAGES */}
       <div style={styles.chatArea}>
+        {messages.length === 0 && (
+           <div style={{textAlign:'center', opacity: 0.5, marginTop: '20px'}}>
+              -- FREQUENCY SILENT. INITIATE TRANSMISSION --
+           </div>
+        )}
         {messages.map(msg => (
           <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === user.name ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
              <div style={msg.sender === user.name ? styles.myMsg : styles.otherMsg}>
-                <div style={{fontSize:'10px', marginBottom:'5px', opacity: 0.7, color: '#00ff00'}}>{msg.sender}</div>
+                <div style={{fontSize:'10px', marginBottom:'5px', opacity: 0.7, color: '#00ff00'}}>
+                  {msg.sender.toUpperCase()}
+                </div>
                 
                 {msg.type === 'text' && <DecryptedText text={msg.text} />}
                 
@@ -175,13 +223,13 @@ function App() {
                 
                 {(msg.type === 'video_call' || msg.type === 'voice_call') && (
                   <a href={msg.text} target="_blank" rel="noreferrer" style={styles.link}>
-                    {msg.type === 'video_call' ? '🎥 JOIN VIDEO' : '📞 JOIN VOICE'}
+                    {msg.type === 'video_call' ? '🎥 SECURE VIDEO LINK' : '📞 SECURE VOICE LINK'}
                   </a>
                 )}
              </div>
           </div>
         ))}
-        {uploading && <div style={{textAlign:'center', color:'#00ff00'}}>ENCRYPTING TRANSMISSION...</div>}
+        {uploading && <div style={{textAlign:'center', color:'#00ff00', animation: 'blink 1s infinite'}}>UPLOADING DATA PACKET...</div>}
         <div ref={messagesEndRef} />
       </div>
 
@@ -189,13 +237,15 @@ function App() {
       <div style={styles.inputArea}>
         <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
         <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
+        
         <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#00ff00'}}>
           {isRecording ? '⏹' : '🎤'}
         </button>
+        
         <input 
           value={input} 
           onChange={(e) => setInput(e.target.value)} 
-          placeholder="TRANSMIT DATA..." 
+          placeholder={`MESSAGE TO ${user.channel}...`} 
           style={styles.inputBar}
           onKeyPress={(e) => e.key === 'Enter' && handleSend()}
         />
@@ -205,20 +255,21 @@ function App() {
   );
 }
 
-// --- STYLES (NO EXTERNAL FILES) ---
+// --- STYLES (MONOLITH V9) ---
 const styles = {
-  container: { height: '100vh', background: '#050505', color: '#00ff00', fontFamily: 'monospace', display: 'flex', flexDirection: 'column' },
-  box: { margin: 'auto', border: '1px solid #00ff00', padding: '40px', textAlign: 'center', borderRadius: '10px', boxShadow: '0 0 20px rgba(0,255,0,0.2)' },
-  input: { display: 'block', margin: '20px auto', background: 'black', border: '1px solid #00ff00', color: '#00ff00', padding: '15px', textAlign: 'center', fontSize: '16px', outline: 'none' },
-  btn: { background: '#00ff00', color: 'black', border: 'none', padding: '10px 25px', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px', borderRadius: '2px' },
-  header: { padding: '15px', background: '#0a0a0a', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  chatArea: { flex: 1, overflowY: 'auto', padding: '20px', scrollBehavior: 'smooth' },
-  myMsg: { background: 'rgba(0, 50, 0, 0.5)', border: '1px solid #00ff00', padding: '10px', borderRadius: '15px 15px 0 15px', maxWidth: '80%', color: '#fff' },
-  otherMsg: { background: '#111', border: '1px solid #444', padding: '10px', borderRadius: '15px 15px 15px 0', maxWidth: '80%', color: '#ddd' },
-  inputArea: { padding: '15px', background: '#0a0a0a', borderTop: '1px solid #333', display: 'flex', gap: '10px', alignItems: 'center' },
-  inputBar: { flex: 1, background: 'transparent', border: '1px solid #333', color: '#fff', padding: '15px', fontFamily: 'monospace', outline: 'none', borderRadius: '5px' },
-  iconBtn: { background: 'none', border: '1px solid #00ff00', borderRadius: '5px', width: '40px', height: '40px', fontSize: '18px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  link: { color: '#00ff00', border: '1px dashed #00ff00', padding: '10px', textDecoration: 'none', display: 'block', textAlign: 'center', marginTop: '5px' }
+  container: { height: '100vh', background: '#050505', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex', flexDirection: 'column' },
+  box: { margin: 'auto', border: '1px solid #00ff00', padding: '40px', width:'90%', maxWidth:'400px', textAlign: 'center', borderRadius: '5px', boxShadow: '0 0 30px rgba(0,255,0,0.15)', background: '#000' },
+  label: { display:'block', textAlign:'left', fontSize:'12px', marginBottom:'5px', opacity:0.8 },
+  input: { display: 'block', width: '100%', boxSizing:'border-box', background: '#0a0a0a', border: '1px solid #333', color: '#00ff00', padding: '15px', fontSize: '16px', outline: 'none', fontFamily:'monospace', marginBottom:'10px' },
+  btn: { background: '#00ff00', color: 'black', border: 'none', padding: '15px', width: '100%', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px', borderRadius: '2px', marginTop:'10px' },
+  header: { padding: '15px 20px', background: '#0a0a0a', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  chatArea: { flex: 1, overflowY: 'auto', padding: '20px', scrollBehavior: 'smooth', backgroundImage: 'linear-gradient(rgba(0, 10, 0, 0.9), rgba(0, 10, 0, 0.9)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' },
+  myMsg: { background: 'rgba(0, 40, 0, 0.6)', border: '1px solid #005500', padding: '12px', borderRadius: '8px 8px 0 8px', maxWidth: '80%', color: '#e0ffe0' },
+  otherMsg: { background: '#111', border: '1px solid #333', padding: '12px', borderRadius: '8px 8px 8px 0', maxWidth: '80%', color: '#ccc' },
+  inputArea: { padding: '15px', background: '#0a0a0a', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '10px', alignItems: 'center' },
+  inputBar: { flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '12px', fontFamily: 'monospace', outline: 'none', borderRadius: '4px' },
+  iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '4px', width: '45px', height: '45px', fontSize: '20px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' },
+  link: { color: '#00ff00', border: '1px dashed #00ff00', padding: '10px', textDecoration: 'none', display: 'block', textAlign: 'center', marginTop: '5px', background: 'rgba(0,255,0,0.05)' }
 };
 
 export default App;
