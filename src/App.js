@@ -30,7 +30,6 @@ const playSound = (type) => {
   oscillator.stop(audioCtx.currentTime + 0.3);
 };
 
-// V28.1: CRASH-PROOF AVATAR
 const getAvatar = (user) => {
     if (!user) return `https://api.dicebear.com/7.x/bottts/svg?seed=Unknown&backgroundColor=transparent`;
     if (user.avatar) return user.avatar;
@@ -38,7 +37,7 @@ const getAvatar = (user) => {
 };
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V28.1 (ROBUST PROFILE)
+// 2. MAIN APP: UMBRA V29.1 (FORCE PROPAGATION)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -58,13 +57,14 @@ function App() {
   const [addStatus, setAddStatus] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // PROFILE EDIT STATE
+  // PROFILE EDIT
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [editAvatar, setEditAvatar] = useState(null);
   const [editWallpaper, setEditWallpaper] = useState(null);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [saveStatusText, setSaveStatusText] = useState('SAVE CONFIGURATION'); // Feedback text
 
   // RECOVERY
   const [recoveryStep, setRecoveryStep] = useState(1);
@@ -160,32 +160,65 @@ function App() {
       setEditLocation(myProfile.location || '');
       setEditAvatar(null);
       setEditWallpaper(null);
+      setSaveStatusText('SAVE CONFIGURATION');
       setView('SETTINGS');
   };
 
+  // V29.1: FORCE PROPAGATION
   const saveProfile = async () => {
       setSavingProfile(true);
+      setSaveStatusText('UPLOADING ASSETS...');
+      
       let updates = { name: editName, email: editEmail, location: editLocation };
       
+      // Upload Images
       if (editAvatar) {
           const avatarRef = ref(storage, `avatars/${myProfile.phone}_${Date.now()}`);
           await uploadBytes(avatarRef, editAvatar);
           updates.avatar = await getDownloadURL(avatarRef);
       }
-
       if (editWallpaper) {
           const wallRef = ref(storage, `wallpapers/${myProfile.phone}_${Date.now()}`);
           await uploadBytes(wallRef, editWallpaper);
           updates.wallpaper = await getDownloadURL(wallRef);
       }
 
+      setSaveStatusText('UPDATING DATABASE...');
+      // 1. Update Self
       await updateDoc(doc(db, "users", myProfile.phone), updates);
+
+      // 2. FORCE UPDATE FRIENDS
+      const myNewAvatar = updates.avatar || myProfile.avatar || null;
+      const myNewName = updates.name || myProfile.name;
+      
+      const friendsSnap = await getDocs(collection(db, "users", myProfile.phone, "friends"));
+      const batch = writeBatch(db);
+      let count = 0;
+
+      friendsSnap.forEach((friendDoc) => {
+          const friendPhone = friendDoc.id;
+          const refInFriend = doc(db, "users", friendPhone, "friends", myProfile.phone);
+          // V29.1: Using SET with MERGE instead of UPDATE to prevent errors if doc is missing
+          batch.set(refInFriend, { 
+              name: myNewName, 
+              avatar: myNewAvatar 
+          }, { merge: true });
+          count++;
+      });
+
+      if (count > 0) {
+          setSaveStatusText(`SYNCING ${count} FRIENDS...`);
+          await batch.commit();
+      }
+
+      // 3. Update Local State
       setMyProfile({ ...myProfile, ...updates });
       setSavingProfile(false);
-      setView('APP');
+      setSaveStatusText('SAVED!');
+      setTimeout(() => setView('APP'), 1000);
   };
 
-  // RECOVERY & DATA LISTENERS (Standard)
+  // RECOVERY & DATA LISTENERS
   const initRecovery = async () => {
       const cleanPhone = inputPhone.replace(/\D/g, '');
       if (cleanPhone.length < 5) { setLoginError('ENTER VALID PHONE'); return; }
@@ -236,7 +269,6 @@ function App() {
     return () => clearInterval(interval);
   }, [messages, myProfile]);
 
-  // FRIENDSHIP & CHAT
   const sendFriendRequest = async () => {
     const targetPhone = friendPhone.replace(/\D/g, '');
     if (targetPhone === myProfile.phone) return setAddStatus("CANNOT ADD SELF");
@@ -247,9 +279,23 @@ function App() {
     setFriendPhone('');
   };
 
+  // SMART ACCEPT
   const acceptRequest = async (req) => {
-    await setDoc(doc(db, "users", myProfile.phone, "friends", req.from), { phone: req.from, name: req.fromName });
-    await setDoc(doc(db, "users", req.from, "friends", myProfile.phone), { phone: myProfile.phone, name: myProfile.name });
+    const friendDoc = await getDoc(doc(db, "users", req.from));
+    const friendData = friendDoc.exists() ? friendDoc.data() : {};
+    
+    await setDoc(doc(db, "users", myProfile.phone, "friends", req.from), { 
+        phone: req.from, 
+        name: friendData.name || req.fromName,
+        avatar: friendData.avatar || null
+    });
+
+    await setDoc(doc(db, "users", req.from, "friends", myProfile.phone), { 
+        phone: myProfile.phone, 
+        name: myProfile.name,
+        avatar: myProfile.avatar || null
+    });
+
     await deleteDoc(doc(db, "friend_requests", req.id));
   };
 
@@ -439,23 +485,19 @@ function App() {
       );
   }
 
-  // SETTINGS VIEW
   if (view === 'SETTINGS') {
       return (
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '24px', marginBottom:'20px'}}>IDENTITY CONFIG</h1>
-              
               <div style={{display:'flex', gap:'10px', alignItems:'center', marginBottom:'15px'}}>
                   <img src={editAvatar ? URL.createObjectURL(editAvatar) : getAvatar(myProfile)} style={{width:'50px', height:'50px', borderRadius:'50%', border:'1px solid #00ff00'}} alt="avatar" />
                   <input type="file" ref={avatarInputRef} hidden onChange={e => setEditAvatar(e.target.files[0])} accept="image/*" />
                   <button onClick={() => avatarInputRef.current.click()} style={{...styles.tinyBtn, width:'auto', padding:'5px 10px'}}>UPLOAD AVATAR</button>
               </div>
-
               <input style={styles.input} placeholder="DISPLAY NAME" value={editName} onChange={e => setEditName(e.target.value)}/>
               <input style={styles.input} placeholder="EMAIL" value={editEmail} onChange={e => setEditEmail(e.target.value)}/>
               <input style={styles.input} placeholder="CITY / COUNTRY" value={editLocation} onChange={e => setEditLocation(e.target.value)}/>
-              
               <div style={{marginBottom:'20px'}}>
                   <div style={{fontSize:'10px', color:'#00ff00', marginBottom:'5px'}}>CHAT WALLPAPER</div>
                   <input type="file" ref={wallpaperInputRef} hidden onChange={e => setEditWallpaper(e.target.files[0])} accept="image/*" />
@@ -463,9 +505,9 @@ function App() {
                       {editWallpaper ? 'IMAGE SELECTED' : 'UPLOAD IMAGE'}
                   </button>
               </div>
-
+              {/* V29.1: FEEDBACK BUTTON */}
               <button style={styles.btn} onClick={saveProfile} disabled={savingProfile}>
-                  {savingProfile ? 'SAVING...' : 'SAVE CONFIGURATION'}
+                  {savingProfile ? saveStatusText : 'SAVE CONFIGURATION'}
               </button>
               <button style={{...styles.btn, background:'transparent', color:'#888', marginTop:'10px'}} onClick={() => setView('APP')}>CANCEL</button>
            </div>
@@ -478,7 +520,7 @@ function App() {
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V28.1</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V29.1</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -497,20 +539,15 @@ function App() {
   return (
     <div style={styles.container}>
       <div style={{...styles.sidebar, display: isMobile && mobileView === 'CHAT' ? 'none' : 'flex'}}>
-          
-          {/* V28.1: CLICKABLE PROFILE HEADER */}
           <div style={styles.sideHeader} onClick={openSettings} title="Click to Edit Profile">
              <img src={getAvatar(myProfile)} style={{width:'35px', height:'35px', borderRadius:'50%', border:'1px solid #00ff00', marginRight:'10px'}} alt="me"/>
              <div style={{flex:1, minWidth:0, cursor:'pointer'}}>
                  <div style={styles.truncatedText}>{myProfile.name}</div>
                  <div style={{fontSize:'10px'}}>{myProfile.phone}</div>
              </div>
-             
-             {/* SETTINGS + LOGOUT ICONS */}
              <button style={{...styles.iconBtnSmall, color:'#00ff00', marginRight:'5px'}}>⚙️</button>
              <button onClick={(e) => { e.stopPropagation(); handleLogout(); }} style={{...styles.iconBtnSmall, color:'red', borderColor:'#333'}}>⏻</button>
           </div>
-
           <div style={styles.addSection}>
               <div style={{display:'flex', gap:'5px'}}>
                   <input style={styles.miniInput} placeholder="ADD PHONE #" value={friendPhone} onChange={e => setFriendPhone(e.target.value)} type="tel"/>
