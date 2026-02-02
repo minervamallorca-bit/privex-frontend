@@ -1,11 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
+import Login from './components/Login';
+import ChatRoom from './components/ChatRoom';
+import './App.css';
 
 function App() {
+  const [user, setUser] = useState(null);
+
   return (
-    <div style={{background: 'black', color: '#00ff00', height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column'}}>
-      <h1>SYSTEM REBOOT: SUCCESSFUL</h1>
-      <p>The Main Engine is online.</p>
-      <p>The error is located in the Sub-Modules (Login or Chat).</p>
+    <div className="App">
+      {!user ? (
+        <Login onLogin={setUser} />
+      ) : (
+        <ChatRoom user={user} logout={() => setUser(null)} />
+      )}
     </div>
   );
 }

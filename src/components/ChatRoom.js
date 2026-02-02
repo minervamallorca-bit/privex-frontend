@@ -21,11 +21,7 @@ const DecryptedText = ({ text }) => {
   return <span>{display}</span>;
 };
 
-// 🛡️ SAFETY FIX: Default props ensure app never crashes if theme is missing
-export default function ChatRoom({ user, logout, theme, toggleTheme }) {
-  // FALLBACK THEME (The Safety Net)
-  const safeTheme = theme || { primary: '#00ff00', bg: '#050505', secondary: 'rgba(0, 255, 0, 0.1)' };
-
+export default function ChatRoom({ user, logout }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -105,81 +101,65 @@ export default function ChatRoom({ user, logout, theme, toggleTheme }) {
   };
 
   return (
-    <div style={{...styles.container, background: safeTheme.bg, color: safeTheme.primary}}>
-      <div style={{...styles.header, background: safeTheme.bg, borderBottom: `1px solid ${safeTheme.primary}`}}>
-        <div style={styles.status}>
-            <span style={{...styles.dot, background: safeTheme.primary, boxShadow: `0 0 5px ${safeTheme.primary}`}}></span>
-            <span>SECURE_UPLINK</span>
-        </div>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <div style={styles.status}><span style={styles.dot}></span><span>UPLINK_ESTABLISHED</span></div>
         <div style={styles.headerControls}>
-          {/* THEME BUTTON */}
-          <button onClick={toggleTheme} style={{...styles.iconBtn, color: safeTheme.primary}}>🎨</button>
-          
-          <button onClick={() => startCall(false)} style={{...styles.iconBtn, color: safeTheme.primary}}>📞</button>
-          <button onClick={() => startCall(true)} style={{...styles.iconBtn, color: safeTheme.primary}}>🎥</button>
-          <button onClick={logout} style={{...styles.logoutBtn, borderColor: 'red', color: 'red'}}>EXIT</button>
+          <button onClick={() => startCall(false)} style={styles.iconBtn}>📞</button>
+          <button onClick={() => startCall(true)} style={styles.iconBtn}>🎥</button>
+          <button onClick={logout} style={styles.logoutBtn}>EXIT</button>
         </div>
       </div>
-
       <div style={styles.chatWindow}>
         {messages.map((msg) => (
           <div key={msg.id} style={{...styles.messageRow, justifyContent: msg.sender === user.name ? 'flex-end' : 'flex-start'}}>
-            <div style={msg.sender === user.name 
-              ? {...styles.myBubble, background: safeTheme.secondary, borderColor: safeTheme.primary} 
-              : {...styles.otherBubble, borderColor: '#444'}
-            }>
-              <div style={{...styles.senderName, color: safeTheme.primary}}>{msg.sender.toUpperCase()}</div>
+            <div style={msg.sender === user.name ? styles.myBubble : styles.otherBubble}>
+              <div style={styles.senderName}>{msg.sender.toUpperCase()}</div>
               {msg.type === 'text' && <DecryptedText text={msg.text} />}
               {msg.type === 'image' && <img src={msg.text} alt="attachment" style={styles.media} />}
               {msg.type === 'audio' && <audio src={msg.text} controls style={styles.audio} />}
               {(msg.type === 'video_call' || msg.type === 'voice_call') && (
-                 <a href={msg.text} target="_blank" rel="noreferrer" style={{...styles.callLink, color: safeTheme.primary, borderColor: safeTheme.primary}}>
-                   {msg.type === 'video_call' ? '🎥 JOIN VIDEO' : '📞 JOIN VOICE'}
+                 <a href={msg.text} target="_blank" rel="noreferrer" style={styles.callLink}>
+                   {msg.type === 'video_call' ? '🎥 JOIN SECURE VIDEO' : '📞 JOIN SECURE VOICE'}
                  </a>
               )}
             </div>
           </div>
         ))}
-        {uploading && <div style={{textAlign:'center'}}>ENCRYPTING...</div>}
+        {uploading && <div style={{color:'#00ff00', textAlign:'center'}}>ENCRYPTING...</div>}
         <div ref={messagesEndRef} />
       </div>
-
-      <div style={{...styles.inputArea, background: safeTheme.bg, borderTop: `1px solid ${safeTheme.primary}`}}>
+      <div style={styles.inputArea}>
         <input type="file" ref={fileInputRef} style={{display:'none'}} onChange={handleFileUpload} />
-        <button onClick={() => fileInputRef.current.click()} style={{...styles.attachBtn, color: safeTheme.primary}}>📎</button>
-        <button onClick={toggleRecording} style={{...styles.attachBtn, color: isRecording ? 'red' : safeTheme.primary}}>
+        <button onClick={() => fileInputRef.current.click()} style={styles.attachBtn}>📎</button>
+        <button onClick={toggleRecording} style={{...styles.attachBtn, color: isRecording ? 'red' : '#00ff00'}}>
             {isRecording ? '⏹' : '🎤'}
         </button>
-        <input 
-            style={{...styles.input, borderColor: safeTheme.primary, color: safeTheme.primary}} 
-            value={input} 
-            onChange={(e) => setInput(e.target.value)} 
-            placeholder="TRANSMIT..." 
-        />
-        <button onClick={handleSend} style={{...styles.sendBtn, background: safeTheme.primary}}>📤</button>
+        <input style={styles.input} value={input} onChange={(e) => setInput(e.target.value)} placeholder="TRANSMIT DATA..." />
+        <button onClick={handleSend} style={styles.sendBtn}>📤</button>
       </div>
     </div>
   );
 }
 
 const styles = {
-  container: { display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'monospace' },
-  header: { padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  container: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#050505', color: '#00ff00', fontFamily: 'monospace' },
+  header: { padding: '15px', borderBottom: '1px solid #333', background: '#0a0a0a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   status: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px' },
   headerControls: { display: 'flex', gap: '10px' },
-  dot: { width: '8px', height: '8px', borderRadius: '50%' },
-  logoutBtn: { background: 'transparent', border: '1px solid', padding: '5px 10px', fontSize: '10px', cursor: 'pointer' },
+  dot: { width: '8px', height: '8px', background: '#00ff00', borderRadius: '50%', boxShadow: '0 0 5px #00ff00' },
+  logoutBtn: { background: 'transparent', border: '1px solid #ff3333', color: '#ff3333', padding: '5px 10px', fontSize: '10px', cursor: 'pointer' },
   iconBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' },
   chatWindow: { flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' },
   messageRow: { display: 'flex', width: '100%' },
-  myBubble: { border: '1px solid', color: '#fff', padding: '10px', borderRadius: '15px 15px 0 15px', maxWidth: '80%' },
-  otherBubble: { background: '#222', border: '1px solid', color: '#ddd', padding: '10px', borderRadius: '15px 15px 15px 0', maxWidth: '80%' },
-  senderName: { fontSize: '9px', marginBottom: '5px' },
+  myBubble: { background: 'rgba(0, 255, 0, 0.1)', border: '1px solid #00ff00', color: '#fff', padding: '10px', borderRadius: '15px 15px 0 15px', maxWidth: '80%' },
+  otherBubble: { background: '#222', border: '1px solid #444', color: '#ddd', padding: '10px', borderRadius: '15px 15px 15px 0', maxWidth: '80%' },
+  senderName: { fontSize: '9px', color: '#00ff00', marginBottom: '5px' },
   media: { maxWidth: '100%', borderRadius: '5px', marginTop: '5px' },
   audio: { width: '200px', marginTop: '5px' },
-  callLink: { display: 'block', padding: '10px', textDecoration: 'none', border: '1px dashed', textAlign: 'center', marginTop: '5px' },
-  inputArea: { padding: '15px', display: 'flex', gap: '10px', alignItems: 'center' },
-  input: { flex: 1, padding: '15px', background: 'transparent', border: '1px solid', fontFamily: 'monospace', outline: 'none', borderRadius: '5px' },
-  attachBtn: { background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' },
-  sendBtn: { color: '#000', border: 'none', padding: '0 20px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '5px' }
+  callLink: { display: 'block', background: '#003300', padding: '10px', color: '#00ff00', textDecoration: 'none', border: '1px dashed #00ff00', textAlign: 'center', marginTop: '5px' },
+  inputArea: { padding: '15px', background: '#0a0a0a', borderTop: '1px solid #333', display: 'flex', gap: '10px', alignItems: 'center' },
+  input: { flex: 1, padding: '15px', background: '#000', border: '1px solid #333', color: '#fff', fontFamily: 'monospace', outline: 'none', borderRadius: '5px' },
+  attachBtn: { background: 'none', border: 'none', color: '#00ff00', fontSize: '20px', cursor: 'pointer' },
+  sendBtn: { background: '#00ff00', color: '#000', border: 'none', padding: '0 20px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '5px' }
 };
