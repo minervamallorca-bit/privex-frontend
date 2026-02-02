@@ -58,7 +58,7 @@ const playSound = (type) => {
     osc.start(now);
     osc.stop(now + 2.0);
   } 
-  else if (type === 'call_audio') {
+  else if (type === 'ringtone') { // V44: DEDICATED LOOP SOUND
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(600, now);
     osc.frequency.linearRampToValueAtTime(800, now + 0.1);
@@ -110,7 +110,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V43 (ICE BREAKER)
+// 2. MAIN APP: UMBRA V44 (INFINITE RING & VIDEO FIX)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -161,6 +161,7 @@ function App() {
   const wallpaperInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const ringInterval = useRef(null); // V44: RING LOOP REF
 
   const isInitialLoad = useRef(true);
 
@@ -514,7 +515,7 @@ function App() {
     await batch.commit();
   };
 
-  // V43: ICE CANDIDATE LOGIC
+  // V44: VIDEO FIX & LOOPING RING
   const startCall = async (mode) => {
     resumeAudio();
     setCallActive(true); setCallStatus('DIALING...'); setIsVideoCall(mode === 'video');
@@ -525,14 +526,26 @@ function App() {
 
     pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
     
+    // V44: Get Stream FIRST
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' ? { width: 640 } : false });
     localStream.current = stream;
+    
+    // Attach stream to video tag immediately
     if (localVideoRef.current && mode === 'video') localVideoRef.current.srcObject = stream;
     
+    // Add tracks to PC
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
 
+    // ICE Handling
     pc.current.onicecandidate = (event) => {
       if (event.candidate) addDoc(offerCandidatesRef, event.candidate.toJSON());
+    };
+
+    // Remote Stream Handling
+    pc.current.ontrack = (event) => {
+       if (remoteVideoRef.current) {
+           remoteVideoRef.current.srcObject = event.streams[0];
+       }
     };
 
     const offer = await pc.current.createOffer();
@@ -540,23 +553,18 @@ function App() {
 
     await setDoc(callDocRef, { type: 'offer', sdp: JSON.stringify(offer), sender: myProfile.phone, mode: mode });
 
-    pc.current.ontrack = (event) => {
-       if (remoteVideoRef.current) {
-           remoteVideoRef.current.srcObject = event.streams[0];
-       }
-    };
-
     // Listen for Answer
-    const unsubCall = onSnapshot(callDocRef, (snap) => {
+    onSnapshot(callDocRef, (snap) => {
        const data = snap.data();
        if (!pc.current.currentRemoteDescription && data?.sdp && data.type === 'answer') {
            const answer = JSON.parse(data.sdp);
            pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+           setCallStatus('CONNECTED');
        }
     });
 
-    // Listen for Candidates
-    const unsubIce = onSnapshot(answerCandidatesRef, (snap) => {
+    // Listen for Remote ICE
+    onSnapshot(answerCandidatesRef, (snap) => {
        snap.docChanges().forEach((change) => {
            if (change.type === 'added') {
                const candidate = new RTCIceCandidate(change.doc.data());
@@ -568,6 +576,9 @@ function App() {
 
   const answerCall = async () => {
     resumeAudio();
+    // V44: STOP RINGING
+    if (ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
+    
     setCallActive(true);
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     const callDocRef = doc(db, "calls", chatID);
@@ -600,6 +611,7 @@ function App() {
     await pc.current.setLocalDescription(answer);
 
     await updateDoc(callDocRef, { type: 'answer', sdp: JSON.stringify(answer) });
+    setCallStatus('CONNECTED');
 
     onSnapshot(offerCandidatesRef, (snap) => {
        snap.docChanges().forEach((change) => {
@@ -612,6 +624,9 @@ function App() {
   };
 
   const endCall = async () => {
+     // Stop ringing if active
+     if (ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
+     
      const chatID = getChatID(myProfile.phone, activeFriend.phone);
      try { await deleteDoc(doc(db, "calls", chatID)); } catch(e) {}
      if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
@@ -619,6 +634,7 @@ function App() {
      setCallActive(false);
   };
 
+  // V44: LISTENER FOR INCOMING (WITH LOOP)
   useEffect(() => {
       if (!activeFriend) return;
       const chatID = getChatID(myProfile.phone, activeFriend.phone);
@@ -626,12 +642,26 @@ function App() {
           const data = snap.data();
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
-              playSound('call_audio'); 
+              
+              // START INFINITE LOOP
+              if (!ringInterval.current) {
+                  playSound('ringtone');
+                  ringInterval.current = setInterval(() => {
+                      playSound('ringtone');
+                  }, 2500);
+              }
           }
-          // Note: Remote description setting moved to answerCall/startCall logic to avoid race conditions
-          if (!data && callActive) { setCallActive(false); if(localStream.current) localStream.current.getTracks().forEach(t => t.stop()); }
+          if (!data && callActive) { 
+              // CALL ENDED REMOTELY
+              if (ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
+              setCallActive(false); 
+              if(localStream.current) localStream.current.getTracks().forEach(t => t.stop()); 
+          }
       });
-      return () => unsub();
+      return () => {
+          unsub();
+          if (ringInterval.current) clearInterval(ringInterval.current);
+      };
   }, [activeFriend, callActive]);
 
   // --- RENDERERS ---
@@ -694,7 +724,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V43</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V44</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
