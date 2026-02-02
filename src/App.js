@@ -12,7 +12,6 @@ const playSound = (type) => {
   const gainNode = audioCtx.createGain();
   
   if (type === 'purge') {
-    // SYSTEM FAILURE SOUND (Low, descending tone)
     oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
     oscillator.type = 'sawtooth';
     oscillator.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.5);
@@ -23,7 +22,6 @@ const playSound = (type) => {
     oscillator.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3);
     gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
   } else {
-    // Ping
     oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
     oscillator.type = 'sine';
     oscillator.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.1);
@@ -31,7 +29,6 @@ const playSound = (type) => {
   }
 
   gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.1));
-  
   oscillator.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   oscillator.start();
@@ -62,7 +59,7 @@ const DecryptedText = ({ text }) => {
 };
 
 // ---------------------------------------------------------
-// 3. MAIN APPLICATION: UMBRA V14
+// 3. MAIN APPLICATION: UMBRA V14.1
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -73,12 +70,10 @@ function App() {
   const [typingUsers, setTypingUsers] = useState([]); 
   const [status, setStatus] = useState('UMBRA NET: SECURE');
   
-  // V14 Features
   const [burnMode, setBurnMode] = useState(false); 
-  const [videoMode, setVideoMode] = useState(false); // V14: Viewscreen Toggle
+  const [videoMode, setVideoMode] = useState(false); 
   const [time, setTime] = useState(Date.now()); 
 
-  // Login Inputs
   const [loginName, setLoginName] = useState('');
   const [loginChannel, setLoginChannel] = useState('MAIN');
   const [loginKey, setLoginKey] = useState(''); 
@@ -146,7 +141,6 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typingUsers, videoMode]);
 
-  // --- HANDLERS ---
   const handleInputChange = async (e) => {
     setInput(e.target.value);
     if (!user) return;
@@ -210,24 +204,20 @@ function App() {
     }
   };
 
-  // --- V14: PANIC BUTTON (THE PURGE) ---
   const executePurge = () => {
     playSound('purge');
     setVideoMode(false);
     setUser(null);
   };
 
-  // --- LOGIN LOGIC ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
     if (!loginName.trim()) return;
     const safeChannel = loginChannel.trim().toUpperCase().replace(/\s/g, '_') || 'MAIN';
     const safeKey = loginKey.trim();
-
     const docRef = doc(db, "secure_channels", safeChannel);
     const docSnap = await getDoc(docRef);
-
     if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.key && data.key !== safeKey) {
@@ -241,12 +231,28 @@ function App() {
     setUser({ name: loginName, id: Date.now(), channel: safeChannel });
   };
 
+  // V14.1: JOIN CALL (Internal)
+  const joinCallInternal = (e) => {
+    e.preventDefault();
+    setVideoMode(true); // Open the viewscreen
+  };
+
+  // V14.1: START CALL (Sends link)
+  const startCall = (videoMode) => {
+    // Generate secure hash for the room
+    const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
+    // We send a dummy link, but the client knows how to handle it
+    const callUrl = `https://meet.jit.si/UMBRA_SECURE_${secureHash}`;
+    sendMessage(callUrl, videoMode ? 'video_call' : 'voice_call');
+    setVideoMode(true); // Auto open for sender
+  };
+
   if (!user) {
     return (
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// WAR ROOM PROTOCOL V14.0</div>
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// UPLINK PROTOCOL V14.1</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -261,7 +267,6 @@ function App() {
     );
   }
 
-  // --- V14: GENERATE SECURE VIDEO URL ---
   const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
   const callUrl = `https://meet.jit.si/UMBRA_SECURE_${secureHash}`;
 
@@ -276,38 +281,21 @@ function App() {
         <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
            <button 
              onClick={() => setBurnMode(!burnMode)} 
-             style={{
-                ...styles.iconBtn, 
-                width: 'auto', padding: '0 10px', fontSize:'12px', fontWeight:'bold',
-                color: burnMode ? 'black' : 'orange', 
-                background: burnMode ? 'orange' : 'transparent',
-                borderColor: 'orange'
-             }}
+             style={{...styles.iconBtn, width: 'auto', padding: '0 10px', fontSize:'12px', fontWeight:'bold', color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}
            >
              {burnMode ? '🔥' : '🔥'}
            </button>
-           
-           {/* V14: VIEWSCREEN TOGGLE */}
            <button onClick={() => setVideoMode(!videoMode)} style={{...styles.iconBtn, background: videoMode ? '#003300' : 'black'}}>
              {videoMode ? '🔼' : '🎥'}
            </button>
-           
-           {/* V14: PURGE BUTTON */}
-           <button onClick={executePurge} style={{...styles.iconBtn, color:'red', borderColor:'red', fontSize:'18px'}} title="EMERGENCY EJECT">
-             ⚠️
-           </button>
+           <button onClick={executePurge} style={{...styles.iconBtn, color:'red', borderColor:'red', fontSize:'18px'}}>⚠️</button>
         </div>
       </div>
 
-      {/* V14: VIEWSCREEN (IFRAME) */}
+      {/* VIEWSCREEN */}
       {videoMode && (
         <div style={{height: '40vh', borderBottom: '1px solid #00ff00', background: '#000'}}>
-            <iframe 
-                src={callUrl + "#config.startWithAudioMuted=true&config.startWithVideoMuted=true"} 
-                style={{width:'100%', height:'100%', border:'none'}} 
-                allow="camera; microphone; fullscreen; display-capture" 
-                title="Viewscreen"
-            />
+            <iframe src={callUrl + "#config.startWithAudioMuted=true&config.startWithVideoMuted=true"} style={{width:'100%', height:'100%', border:'none'}} allow="camera; microphone; fullscreen; display-capture" title="Viewscreen" />
         </div>
       )}
 
@@ -316,7 +304,6 @@ function App() {
         {messages.map(msg => {
             let timeLeft = null;
             if (msg.burnAt) timeLeft = Math.max(0, Math.ceil((msg.burnAt - time) / 1000));
-
             return (
               <div key={msg.id} style={{display:'flex', flexDirection: 'column', alignItems: msg.sender === user.name ? 'flex-end' : 'flex-start', marginBottom:'15px'}}>
                  <div style={{display:'flex', alignItems:'center', gap:'8px', marginBottom:'5px', flexDirection: msg.sender === user.name ? 'row-reverse' : 'row'}}>
@@ -330,15 +317,18 @@ function App() {
                     {msg.type === 'text' && <DecryptedText text={msg.text} />}
                     {msg.type === 'image' && <img src={msg.text} alt="content" style={{maxWidth:'100%', borderRadius:'5px'}} />}
                     {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
+                    
+                    {/* V14.1: SMART LINK (No Redirect) */}
+                    {(msg.type === 'video_call' || msg.type === 'voice_call') && (
+                      <button onClick={joinCallInternal} style={styles.link}>
+                        {msg.type === 'video_call' ? '🎥 OPEN SECURE FEED' : '📞 OPEN SECURE FEED'}
+                      </button>
+                    )}
                  </div>
               </div>
             );
         })}
-        {typingUsers.length > 0 && (
-            <div style={{color: '#00ff00', fontSize: '10px', padding: '10px', animation: 'blink 1.5s infinite'}}>
-                {typingUsers.map(u => u.toUpperCase()).join(', ')} IS TYPING...
-            </div>
-        )}
+        {typingUsers.length > 0 && <div style={{color: '#00ff00', fontSize: '10px', padding: '10px', animation: 'blink 1.5s infinite'}}>{typingUsers.map(u => u.toUpperCase()).join(', ')} IS TYPING...</div>}
         <div ref={messagesEndRef} />
       </div>
 
@@ -346,16 +336,8 @@ function App() {
       <div style={styles.inputArea}>
         <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
         <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
-        <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#00ff00'}}>
-          {isRecording ? '⏹' : '🎤'}
-        </button>
-        <input 
-          value={input} 
-          onChange={handleInputChange}
-          placeholder={burnMode ? "SELF-DESTRUCT MESSAGE..." : "ENCRYPTED MESSAGE..."}
-          style={{...styles.inputBar, borderColor: burnMode ? 'orange' : '#333'}}
-          onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-        />
+        <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#00ff00'}}>{isRecording ? '⏹' : '🎤'}</button>
+        <input value={input} onChange={handleInputChange} placeholder={burnMode ? "SELF-DESTRUCT..." : "ENCRYPTED MESSAGE..."} style={{...styles.inputBar, borderColor: burnMode ? 'orange' : '#333'}} onKeyPress={(e) => e.key === 'Enter' && handleSend()} />
         <button onClick={handleSend} style={{...styles.btn, background: burnMode ? 'orange' : '#00ff00'}}>SEND</button>
       </div>
     </div>
@@ -373,7 +355,8 @@ const styles = {
   otherMsg: { background: '#111', border: '1px solid #333', padding: '12px', borderRadius: '2px', maxWidth: '80%', color: '#ccc' },
   inputArea: { padding: '15px', background: '#0a0a0a', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '10px', alignItems: 'center' },
   inputBar: { flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '12px', fontFamily: 'monospace', outline: 'none', borderRadius: '2px' },
-  iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '45px', height: '45px', fontSize: '20px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+  iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '45px', height: '45px', fontSize: '20px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  link: { color: '#00ff00', border: '1px dashed #00ff00', padding: '10px', textDecoration: 'none', display: 'block', textAlign: 'center', marginTop: '5px', background: 'rgba(0,255,0,0.05)', cursor:'pointer', width: '100%' }
 };
 
 export default App;
