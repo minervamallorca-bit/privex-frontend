@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import './App.css';
 
 function App() {
@@ -10,9 +10,12 @@ function App() {
       display: 'flex', 
       justifyContent: 'center', 
       alignItems: 'center',
-      fontSize: '30px'
+      flexDirection: 'column',
+      fontFamily: 'sans-serif'
     }}>
-      <h1>VERSION 6: BLUE SCREEN</h1>
+      <h1 style={{fontSize: '50px'}}>VERSION 6</h1>
+      <h2>FIREBASE IS DISCONNECTED</h2>
+      <p>If you see this, the React Engine is fine.</p>
     </div>
   );
 }
