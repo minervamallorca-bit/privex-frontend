@@ -17,7 +17,7 @@ const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png";
 const APP_TITLE = "UMBRA SECURE";
 const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; 
 
-// AUDIO CONTEXT
+// GLOBAL AUDIO CONTEXT
 let audioCtx = null;
 
 const getAudioContext = () => {
@@ -25,6 +25,45 @@ const getAudioContext = () => {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   }
   return audioCtx;
+};
+
+// V47: KEEP ALIVE (SILENT PULSE)
+const startKeepAlive = () => {
+    const ctx = getAudioContext();
+    if (ctx.state === 'suspended') ctx.resume();
+    
+    // Create a silent oscillator that never stops to keep the tab awake
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 1; // Inaudible
+    gain.gain.value = 0.0001; // Silent
+    osc.start();
+    console.log("V47: BACKGROUND KEEP-ALIVE ACTIVE");
+};
+
+// V47: SYSTEM NOTIFICATION TRIGGER
+const triggerSystemNotification = (title, body) => {
+    if (Notification.permission === 'granted') {
+        try {
+            // Mobile Vibration Pattern
+            if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 1000]);
+            
+            const n = new Notification(title, {
+                body: body,
+                icon: APP_LOGO,
+                vibrate: [200, 100, 200],
+                tag: 'umbra-call',
+                requireInteraction: true // Keeps notification on screen
+            });
+            
+            n.onclick = function() {
+                window.focus();
+                n.close();
+            };
+        } catch(e) { console.log("Notification error:", e); }
+    }
 };
 
 const resumeAudio = () => {
@@ -110,7 +149,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V46.1 (FORCE PULSE)
+// 2. MAIN APP: UMBRA V47 (BACKGROUND VIGILANCE)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -172,18 +211,20 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // AUDIO WAKE
+  // V47: WAKE UP SEQUENCE ON INTERACTION
   useEffect(() => {
-      const wakeUp = () => resumeAudio();
-      window.addEventListener('click', wakeUp);
-      window.addEventListener('touchstart', wakeUp);
-      window.addEventListener('keydown', wakeUp);
-      return () => {
-          window.removeEventListener('click', wakeUp);
-          window.removeEventListener('touchstart', wakeUp);
-          window.removeEventListener('keydown', wakeUp);
+      const wakeUp = () => {
+          resumeAudio();
+          startKeepAlive(); // START THE SILENT LOOP
       };
-  }, []);
+      window.addEventListener('click', wakeUp, { once: true });
+      window.addEventListener('touchstart', wakeUp, { once: true });
+      
+      // Request Notification Permission
+      if (Notification.permission !== 'granted' && view === 'APP') {
+          Notification.requestPermission();
+      }
+  }, [view]);
 
   useEffect(() => {
       document.title = APP_TITLE;
@@ -196,7 +237,6 @@ function App() {
       link.href = APP_LOGO;
   }, []);
 
-  // AUTO LOGIN
   useEffect(() => {
     const storedCreds = localStorage.getItem('umbra_creds');
     if (storedCreds) {
@@ -215,26 +255,23 @@ function App() {
     }
   }, []);
 
-  // V46.1: AGGRESSIVE HEARTBEAT (30s Interval)
+  // HEARTBEAT
   useEffect(() => {
       if (!myProfile) return;
       
       const sendHeartbeat = async () => {
           try {
-              // Update 'lastActive' on my user doc
               await updateDoc(doc(db, "users", myProfile.phone), { 
                   lastActive: serverTimestamp() 
               });
-          } catch(e) { console.log("Heartbeat fail", e); }
+          } catch(e) {}
       };
 
-      sendHeartbeat(); // Force one immediately
-      
-      const beat = setInterval(sendHeartbeat, 30000); // Repeat every 30s
+      sendHeartbeat(); 
+      const beat = setInterval(sendHeartbeat, 30000); 
       return () => clearInterval(beat);
   }, [myProfile]);
 
-  // V46.1: MONITOR
   useEffect(() => {
       if (!contacts || contacts.length === 0) return;
       
@@ -257,16 +294,12 @@ function App() {
       return () => unsubs.forEach(u => u());
   }, [contacts]);
 
-  // V46.1: CALCULATE STATUS
   const getStatusText = (phone) => {
       const lastActive = friendStatuses[phone];
       if (!lastActive) return "NOT CONNECTED";
-      
       const now = Date.now();
-      const last = lastActive.seconds * 1000; // Convert Firebase timestamp to JS
+      const last = lastActive.seconds * 1000;
       const diff = now - last;
-      
-      // Tolerance: 70 seconds
       return diff < 70000 ? "CONNECTED" : "NOT CONNECTED";
   };
 
@@ -274,6 +307,8 @@ function App() {
     e.preventDefault();
     setLoginError('');
     resumeAudio(); 
+    if (Notification.permission !== 'granted') Notification.requestPermission();
+
     const cleanPhone = inputPhone.replace(/\D/g, ''); 
     if (cleanPhone.length < 5 || !inputName.trim() || !inputPassword.trim()) {
         setLoginError('INVALID INPUTS'); return;
@@ -285,7 +320,6 @@ function App() {
     } else {
       if (userSnap.data().password !== inputPassword) { setLoginError('WRONG PASSWORD'); return; }
       if (userSnap.data().name !== inputName) await updateDoc(userDocRef, { name: inputName });
-      // FORCE HEARTBEAT ON LOGIN
       await updateDoc(userDocRef, { lastActive: serverTimestamp() });
     }
     if (saveLogin) localStorage.setItem('umbra_creds', JSON.stringify({ phone: cleanPhone, password: inputPassword }));
@@ -453,7 +487,9 @@ function App() {
                if (change.type === "added") {
                    const msg = change.doc.data();
                    if (msg.sender !== myProfile.phone) {
+                       // V47: TRIGGER SYSTEM NOTIFICATION
                        playSound('message'); 
+                       triggerSystemNotification(`UMBRA: ${msg.senderName}`, "New Encrypted Message Received");
                    }
                }
            });
@@ -484,13 +520,13 @@ function App() {
     if (burnMode) { msgData.isBurn = true; }
     await addDoc(collection(db, "messages"), msgData);
     
-    // UPDATE HEARTBEAT ON ACTION
+    // HEARTBEAT ON SEND
     await updateDoc(doc(db, "users", myProfile.phone), { lastActive: serverTimestamp() });
 
     try {
         const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
         await updateDoc(friendRef, { unread: increment(1) });
-    } catch(e) {}
+    } catch(e) { console.log("Friend link broken"); }
     setInput('');
   };
 
@@ -677,7 +713,6 @@ function App() {
 
   const endCall = async () => {
      if (ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
-     
      const chatID = getChatID(myProfile.phone, activeFriend.phone);
      try { await deleteDoc(doc(db, "calls", chatID)); } catch(e) {}
      if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
@@ -692,6 +727,10 @@ function App() {
           const data = snap.data();
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
+              
+              // V47: TRIGGER SYSTEM NOTIFICATION FOR CALL
+              triggerSystemNotification(`UMBRA: ${data.mode === 'audio' ? 'VOICE' : 'VIDEO'} CALL`, "Incoming Secure Connection...");
+              
               if (!ringInterval.current) {
                   playSound('ringtone');
                   ringInterval.current = setInterval(() => {
@@ -772,7 +811,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V46.1</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V47</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -832,8 +871,6 @@ function App() {
                         <div style={{flex:1, minWidth:0}}>
                             <div style={styles.contactName}>{c.name}</div>
                             <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
-                            
-                            {/* V46.1: STATUS INDICATOR */}
                             <div style={{
                                 fontSize:'8px', 
                                 fontWeight:'bold', 
@@ -947,7 +984,7 @@ const styles = {
   sideHeader: { padding: '10px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background:'#000', cursor:'pointer' },
   addSection: { padding: '10px', borderBottom: '1px solid #1f1f1f' },
   miniInput: { flex: 1, background: '#111', border: '1px solid #333', color: '#fff', padding: '8px', fontFamily: 'monospace', outline: 'none', fontSize: '12px' },
-  tinyBtn: { background: '#00ff00', color:'black', border:'none', fontSize:'9px', padding:'3px 6px', cursor:'pointer' },
+  tinyBtn: { background: 'transparent', border: 'none', width: '35px', height: '35px', fontSize: '18px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   contactRow: { display:'flex', alignItems:'center', gap:'10px', padding:'10px', borderBottom:'1px solid #1f1f1f', cursor:'pointer' },
   avatar: { width:'35px', height:'35px', borderRadius:'50%', border:'1px solid #00ff00', flexShrink: 0 },
   truncatedText: { fontWeight:'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
