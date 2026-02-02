@@ -3,7 +3,7 @@ import { db, storage } from './firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, getDocs, writeBatch, increment } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// V34: IMPORT PROFESSIONAL ICONS
+// V35: ICONS
 import { 
   FaPowerOff, FaCog, FaUserMinus, FaBroom, FaFire, FaPhoneAlt, FaVideo, 
   FaPhoneSlash, FaPaperclip, FaMicrophone, FaStop, FaPaperPlane, 
@@ -15,6 +15,30 @@ import {
 // ---------------------------------------------------------
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
+
+// V35: MATRIX GLITCH CSS INJECTION
+const GlitchStyles = () => (
+  <style>
+    {`
+      @keyframes matrix-decode {
+        0% { opacity: 0; text-shadow: 0 0 5px #0f0; }
+        20% { opacity: 1; color: #ccffcc; }
+        40% { opacity: 0.8; color: #00ff41; }
+        60% { opacity: 1; text-shadow: 2px 0 red, -2px 0 blue; }
+        80% { opacity: 0.9; text-shadow: none; }
+        100% { opacity: 1; color: #00ff41; }
+      }
+      .matrix-text {
+        font-family: 'Courier New', monospace;
+        color: #00ff41;
+        font-weight: bold;
+        animation: matrix-decode 0.4s ease-out forwards;
+        text-shadow: 0 0 3px rgba(0, 255, 65, 0.5);
+        letter-spacing: 0.5px;
+      }
+    `}
+  </style>
+);
 
 const playSound = (type) => {
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -47,7 +71,7 @@ const getAvatar = (user) => {
 };
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V34 (PROFI ICONS)
+// 2. MAIN APP: UMBRA V35 (MATRIX TEXT)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -58,7 +82,6 @@ function App() {
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
   
-  // INPUTS
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
   const [inputPassword, setInputPassword] = useState('');
@@ -67,7 +90,6 @@ function App() {
   const [addStatus, setAddStatus] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // SETTINGS
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editLocation, setEditLocation] = useState('');
@@ -76,13 +98,11 @@ function App() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [saveStatusText, setSaveStatusText] = useState('SAVE CONFIGURATION');
 
-  // RECOVERY
   const [recoveryStep, setRecoveryStep] = useState(1);
   const [recoveryCode, setRecoveryCode] = useState('');
   const [inputCode, setInputCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // CHAT
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [callActive, setCallActive] = useState(false);
@@ -93,7 +113,6 @@ function App() {
   const [isRecording, setIsRecording] = useState(false); 
   const [time, setTime] = useState(Date.now()); 
   
-  // REFS
   const messagesEndRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -112,7 +131,6 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // BRANDING
   useEffect(() => {
       document.title = APP_TITLE;
       let link = document.querySelector("link[rel~='icon']");
@@ -124,7 +142,6 @@ function App() {
       link.href = APP_LOGO;
   }, []);
 
-  // AUTO LOGIN
   useEffect(() => {
     const storedCreds = localStorage.getItem('umbra_creds');
     if (storedCreds) {
@@ -160,7 +177,6 @@ function App() {
     }
     if (saveLogin) localStorage.setItem('umbra_creds', JSON.stringify({ phone: cleanPhone, password: inputPassword }));
     else localStorage.removeItem('umbra_creds');
-    
     const fullProfile = (await getDoc(userDocRef)).data();
     setMyProfile({ ...fullProfile, phone: cleanPhone });
     setView('APP');
@@ -589,7 +605,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V34</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V35</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -607,6 +623,7 @@ function App() {
 
   return (
     <div style={styles.container}>
+      <GlitchStyles />
       <div style={{...styles.sidebar, display: isMobile && mobileView === 'CHAT' ? 'none' : 'flex'}}>
           <div style={styles.sideHeader} onClick={openSettings} title="Click to Edit Profile">
              <img src={getAvatar(myProfile)} style={{width:'35px', height:'35px', borderRadius:'50%', border:'1px solid #00ff00', marginRight:'10px'}} alt="me"/>
@@ -696,10 +713,14 @@ function App() {
                         return (
                            <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
                                <div style={{...(msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === myProfile.phone ? '#004400' : '#333')}}>
-                                   {msg.type === 'text' && msg.text}
+                                   
+                                   {/* V35: APPLY MATRIX CLASS TO TEXT ONLY */}
+                                   {msg.type === 'text' && <div className="matrix-text">{msg.text}</div>}
+                                   
                                    {msg.type === 'image' && <img src={msg.text} style={{maxWidth:'100%', borderRadius:'5px'}} alt="msg"/>}
                                    {msg.type === 'video_file' && <video src={msg.text} controls style={{maxWidth:'100%', borderRadius:'5px'}} />}
                                    {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
+                                   
                                    <div style={styles.msgFooter}>
                                        {msg.isBurn && !msg.burnAt ? (
                                            <span style={{color:'orange', fontSize:'9px'}}>PENDING READ</span>
