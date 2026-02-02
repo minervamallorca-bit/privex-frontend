@@ -46,7 +46,7 @@ const playSound = (type) => {
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION: UMBRA V19.1 (LITE STREAM)
+// 2. MAIN APPLICATION: UMBRA V19.2 (SYNTAX FIX)
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -86,14 +86,13 @@ function App() {
     ]
   };
 
-  // V19.1: OPTIMIZED MEDIA CONSTRAINTS (Low Latency)
   const mediaConstraints = {
     audio: true,
     video: {
-      width: { ideal: 640 },   // Low Res for Speed
+      width: { ideal: 640 },   
       height: { ideal: 480 },
       facingMode: "user",
-      frameRate: { max: 20 }   // Cap FPS to save bandwidth
+      frameRate: { max: 20 }   
     }
   };
 
@@ -146,6 +145,14 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
+  // --- V19.2: VIDEO STREAM SYNC ---
+  // This replaces the "double ref" error. It safely connects the stream to the video tag.
+  useEffect(() => {
+    if (callActive && localStream && localVideoRef.current) {
+        localVideoRef.current.srcObject = localStream;
+    }
+  }, [callActive, localStream]);
+
   // --- SIGNALING ---
   useEffect(() => {
     if (!user) return;
@@ -166,12 +173,11 @@ function App() {
     return () => unsubscribe();
   }, [user, callActive]);
 
-  // --- CALL FUNCTIONS (UPDATED V19.1) ---
+  // --- CALL FUNCTIONS ---
   const startGhostWire = async () => {
     setCallActive(true);
     setCallStatus('DIALING...');
     
-    // Use Optimized Constraints
     const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
     setLocalStream(stream);
     setRemoteStream(new MediaStream());
@@ -203,7 +209,6 @@ function App() {
     setCallActive(true);
     setCallStatus('CONNECTING...');
 
-    // Use Optimized Constraints
     const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
     setLocalStream(stream);
     setRemoteStream(new MediaStream());
@@ -316,7 +321,7 @@ function App() {
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// LITE STREAM V19.1</div>
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// UPLINK PROTOCOL V19.2</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -355,8 +360,9 @@ function App() {
       {callActive && (
         <div style={{height: '35%', borderBottom: '1px solid #00ff00', background: '#000', position:'relative', display:'flex'}}>
             <video ref={remoteVideoRef} autoPlay playsInline style={{width:'100%', height:'100%', objectFit:'cover'}} />
+            {/* V19.2: FIXED VIDEO TAG (Single Ref) */}
             <div style={{position:'absolute', bottom:'10px', right:'10px', width:'80px', height:'110px', border:'1px solid #00ff00', background:'black', zIndex: 10}}>
-                <video ref={localVideoRef} autoPlay playsInline muted ref={el => { if(el && localStream) el.srcObject = localStream }} style={{width:'100%', height:'100%', objectFit:'cover'}} />
+                <video ref={localVideoRef} autoPlay playsInline muted style={{width:'100%', height:'100%', objectFit:'cover'}} />
             </div>
         </div>
       )}
