@@ -27,13 +27,17 @@ const playSound = (type) => {
   oscillator.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   oscillator.start();
-  oscillator.stop(audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.3));
+  oscillator.stop(audioCtx.currentTime + 0.3);
 };
 
-const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
+// V28: SMART AVATAR (Checks for custom image)
+const getAvatar = (user) => {
+    if (user.avatar) return user.avatar;
+    return `https://api.dicebear.com/7.x/bottts/svg?seed=${user.name || 'User'}&backgroundColor=transparent`;
+};
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V27 (SHARE & SAVE)
+// 2. MAIN APP: UMBRA V28 (PROFILE EDITOR)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -44,6 +48,7 @@ function App() {
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
   
+  // LOGIN INPUTS
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
   const [inputPassword, setInputPassword] = useState('');
@@ -52,11 +57,21 @@ function App() {
   const [addStatus, setAddStatus] = useState('');
   const [loginError, setLoginError] = useState('');
 
+  // V28: PROFILE EDIT STATE
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editLocation, setEditLocation] = useState('');
+  const [editAvatar, setEditAvatar] = useState(null);
+  const [editWallpaper, setEditWallpaper] = useState(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // RECOVERY
   const [recoveryStep, setRecoveryStep] = useState(1);
   const [recoveryCode, setRecoveryCode] = useState('');
   const [inputCode, setInputCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
+  // CHAT
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [callActive, setCallActive] = useState(false);
@@ -67,12 +82,15 @@ function App() {
   const [isRecording, setIsRecording] = useState(false); 
   const [time, setTime] = useState(Date.now()); 
   
+  // REFS
   const messagesEndRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const pc = useRef(null);
   const localStream = useRef(null);
   const fileInputRef = useRef(null);
+  const avatarInputRef = useRef(null);
+  const wallpaperInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
@@ -83,6 +101,7 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // AUTO LOGIN
   useEffect(() => {
     const storedCreds = localStorage.getItem('umbra_creds');
     if (storedCreds) {
@@ -92,7 +111,7 @@ function App() {
             const userDocRef = doc(db, "users", phone);
             const userSnap = await getDoc(userDocRef);
             if (userSnap.exists() && userSnap.data().password === password) {
-               setMyProfile({ phone: phone, name: userSnap.data().name });
+               setMyProfile({ ...userSnap.data(), phone }); // Load all fields
                setView('APP');
             }
         } catch(e) {}
@@ -118,7 +137,10 @@ function App() {
     }
     if (saveLogin) localStorage.setItem('umbra_creds', JSON.stringify({ phone: cleanPhone, password: inputPassword }));
     else localStorage.removeItem('umbra_creds');
-    setMyProfile({ phone: cleanPhone, name: inputName });
+    
+    // FETCH FULL PROFILE
+    const fullProfile = (await getDoc(userDocRef)).data();
+    setMyProfile({ ...fullProfile, phone: cleanPhone });
     setView('APP');
   };
 
@@ -129,6 +151,41 @@ function App() {
     setMyProfile(null);
     setMessages([]);
     setActiveFriend(null);
+  };
+
+  // V28: OPEN SETTINGS
+  const openSettings = () => {
+      setEditName(myProfile.name || '');
+      setEditEmail(myProfile.email || '');
+      setEditLocation(myProfile.location || '');
+      setEditAvatar(null);
+      setEditWallpaper(null);
+      setView('SETTINGS');
+  };
+
+  // V28: SAVE PROFILE
+  const saveProfile = async () => {
+      setSavingProfile(true);
+      let updates = { name: editName, email: editEmail, location: editLocation };
+      
+      // Upload Avatar
+      if (editAvatar) {
+          const avatarRef = ref(storage, `avatars/${myProfile.phone}_${Date.now()}`);
+          await uploadBytes(avatarRef, editAvatar);
+          updates.avatar = await getDownloadURL(avatarRef);
+      }
+
+      // Upload Wallpaper
+      if (editWallpaper) {
+          const wallRef = ref(storage, `wallpapers/${myProfile.phone}_${Date.now()}`);
+          await uploadBytes(wallRef, editWallpaper);
+          updates.wallpaper = await getDownloadURL(wallRef);
+      }
+
+      await updateDoc(doc(db, "users", myProfile.phone), updates);
+      setMyProfile({ ...myProfile, ...updates });
+      setSavingProfile(false);
+      setView('APP');
   };
 
   const initRecovery = async () => {
@@ -155,6 +212,7 @@ function App() {
       setLoginError('');
   };
 
+  // DATA LISTENERS
   useEffect(() => {
     if (!myProfile) return;
     const qReq = query(collection(db, "friend_requests"), where("to", "==", myProfile.phone), where("status", "==", "pending"));
@@ -207,11 +265,7 @@ function App() {
     const q = query(collection(db, "messages"), where("channel", "==", chatID), limit(100));
     const unsub = onSnapshot(q, (snap) => {
        let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-       msgs.sort((a, b) => {
-           const timeA = a.createdAt?.seconds || Date.now();
-           const timeB = b.createdAt?.seconds || Date.now();
-           return timeA - timeB;
-       });
+       msgs.sort((a, b) => (a.createdAt?.seconds || Date.now()) - (b.createdAt?.seconds || Date.now()));
        setMessages(msgs);
        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
     });
@@ -266,14 +320,13 @@ function App() {
     }
   };
 
-  // --- V27: EXTRACTION TOOLS ---
   const shareMessage = async (msg) => {
-      const data = msg.type === 'text' ? msg.text : msg.text; // Text or URL
+      const data = msg.text; 
       if (navigator.share) {
-          try { await navigator.share({ title: 'UMBRA INTEL', text: data, url: msg.type !== 'text' ? data : null }); } catch(e){}
+          try { await navigator.share({ title: 'UMBRA', text: data, url: msg.type !== 'text' ? data : null }); } catch(e){}
       } else {
           navigator.clipboard.writeText(data);
-          alert('COPIED TO CLIPBOARD');
+          alert('COPIED');
       }
   };
 
@@ -363,27 +416,60 @@ function App() {
       return () => unsub();
   }, [activeFriend, callActive]);
 
+  // --- RENDERERS ---
+
   if (view === 'RECOVERY') {
       return (
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: 'orange', fontSize: '32px', marginBottom:'20px'}}>RECOVERY</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>STEP {recoveryStep} OF 2</div>
               {recoveryStep === 1 ? (
                   <>
-                    <input style={styles.input} placeholder="CONFIRM PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
-                    {loginError && <div style={{color:'red', fontSize:'12px', marginBottom:'10px'}}>{loginError}</div>}
+                    <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
                     <button style={styles.btn} onClick={initRecovery}>SEND CODE</button>
                   </>
               ) : (
                   <>
-                    <input style={styles.input} placeholder="ENTER CODE" value={inputCode} onChange={e => setInputCode(e.target.value)} type="tel"/>
+                    <input style={styles.input} placeholder="CODE" value={inputCode} onChange={e => setInputCode(e.target.value)} type="tel"/>
                     <input style={styles.input} placeholder="NEW PASSWORD" value={newPassword} onChange={e => setNewPassword(e.target.value)} type="password"/>
-                    {loginError && <div style={{color:'red', fontSize:'12px', marginBottom:'10px'}}>{loginError}</div>}
-                    <button style={styles.btn} onClick={completeRecovery}>RESET & UNLOCK</button>
+                    <button style={styles.btn} onClick={completeRecovery}>RESET</button>
                   </>
               )}
-              <button style={{...styles.btn, background:'transparent', border:'1px solid #333', color:'#888', marginTop:'10px'}} onClick={() => { setView('LOGIN'); setRecoveryStep(1); setLoginError(''); }}>CANCEL</button>
+              <button style={{...styles.btn, background:'transparent', color:'#888', marginTop:'10px'}} onClick={() => { setView('LOGIN'); setRecoveryStep(1); }}>CANCEL</button>
+           </div>
+        </div>
+      );
+  }
+
+  // V28: SETTINGS VIEW
+  if (view === 'SETTINGS') {
+      return (
+        <div style={styles.fullCenter}>
+           <div style={styles.loginBox}>
+              <h1 style={{color: '#00ff00', fontSize: '24px', marginBottom:'20px'}}>IDENTITY CONFIG</h1>
+              
+              <div style={{display:'flex', gap:'10px', alignItems:'center', marginBottom:'15px'}}>
+                  <img src={editAvatar ? URL.createObjectURL(editAvatar) : getAvatar(myProfile)} style={{width:'50px', height:'50px', borderRadius:'50%', border:'1px solid #00ff00'}} alt="avatar" />
+                  <input type="file" ref={avatarInputRef} hidden onChange={e => setEditAvatar(e.target.files[0])} accept="image/*" />
+                  <button onClick={() => avatarInputRef.current.click()} style={{...styles.tinyBtn, width:'auto', padding:'5px 10px'}}>UPLOAD AVATAR</button>
+              </div>
+
+              <input style={styles.input} placeholder="DISPLAY NAME" value={editName} onChange={e => setEditName(e.target.value)}/>
+              <input style={styles.input} placeholder="EMAIL" value={editEmail} onChange={e => setEditEmail(e.target.value)}/>
+              <input style={styles.input} placeholder="CITY / COUNTRY" value={editLocation} onChange={e => setEditLocation(e.target.value)}/>
+              
+              <div style={{marginBottom:'20px'}}>
+                  <div style={{fontSize:'10px', color:'#00ff00', marginBottom:'5px'}}>CHAT WALLPAPER</div>
+                  <input type="file" ref={wallpaperInputRef} hidden onChange={e => setEditWallpaper(e.target.files[0])} accept="image/*" />
+                  <button onClick={() => wallpaperInputRef.current.click()} style={{...styles.btn, background:'#111', border:'1px solid #333', fontSize:'12px'}}>
+                      {editWallpaper ? 'IMAGE SELECTED' : 'UPLOAD IMAGE'}
+                  </button>
+              </div>
+
+              <button style={styles.btn} onClick={saveProfile} disabled={savingProfile}>
+                  {savingProfile ? 'SAVING...' : 'SAVE CONFIGURATION'}
+              </button>
+              <button style={{...styles.btn, background:'transparent', color:'#888', marginTop:'10px'}} onClick={() => setView('APP')}>CANCEL</button>
            </div>
         </div>
       );
@@ -394,13 +480,13 @@ function App() {
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V27</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V28</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
               <div style={{display:'flex', justifyContent:'center', gap:'10px', marginBottom:'15px'}}>
                   <input type="checkbox" checked={saveLogin} onChange={() => setSaveLogin(!saveLogin)} style={{accentColor:'#00ff00'}}/> 
-                  <span style={{color:'#fff', fontSize:'12px'}}>SAVE LOGIN (WARNING: LOW SEC)</span>
+                  <span style={{color:'#fff', fontSize:'12px'}}>SAVE LOGIN</span>
               </div>
               {loginError && <div style={{color:'red', fontSize:'12px', marginBottom:'10px'}}>{loginError}</div>}
               <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
@@ -414,7 +500,12 @@ function App() {
     <div style={styles.container}>
       <div style={{...styles.sidebar, display: isMobile && mobileView === 'CHAT' ? 'none' : 'flex'}}>
           <div style={styles.sideHeader}>
-             <div style={{flex:1}}><div style={{fontWeight:'bold'}}>{myProfile.name}</div><div style={{fontSize:'10px'}}>{myProfile.phone}</div></div>
+             {/* V28: AVATAR DISPLAY IN HEADER */}
+             <img src={getAvatar(myProfile)} style={{width:'35px', height:'35px', borderRadius:'50%', border:'1px solid #00ff00', marginRight:'10px'}} alt="me"/>
+             <div style={{flex:1, minWidth:0}}><div style={styles.truncatedText}>{myProfile.name}</div><div style={{fontSize:'10px'}}>{myProfile.phone}</div></div>
+             
+             {/* V28: SETTINGS ICON */}
+             <button onClick={openSettings} style={{...styles.iconBtnSmall, color:'#00ff00', marginRight:'5px'}}>⚙️</button>
              <button onClick={handleLogout} style={{...styles.iconBtnSmall, color:'red', borderColor:'#333'}}>⏻</button>
           </div>
           <div style={styles.addSection}>
@@ -438,7 +529,7 @@ function App() {
           <div style={{flex:1, overflowY:'auto'}}>
               {contacts.map(c => (
                   <div key={c.phone} onClick={() => selectFriend(c)} style={{...styles.contactRow, background: activeFriend?.phone === c.phone ? '#111' : 'transparent'}}>
-                      <img src={getAvatar(c.name)} style={styles.avatar} alt="av"/>
+                      <img src={getAvatar(c)} style={styles.avatar} alt="av"/>
                       <div style={{flex:1, minWidth:0}}><div style={styles.contactName}>{c.name}</div><div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div></div>
                       <div style={{color:'#00ff00'}}>➤</div>
                   </div>
@@ -476,26 +567,21 @@ function App() {
                      <div style={{height: '50px', background: '#000', display:'flex', alignItems:'center', justifyContent:'center', color:'#00ff00', borderBottom:'1px solid #00ff00', fontSize:'12px'}}>AUDIO LINK ACTIVE</div>
                 )}
 
-                <div style={styles.chatArea}>
+                {/* V28: DYNAMIC WALLPAPER */}
+                <div style={{...styles.chatArea, backgroundImage: myProfile.wallpaper ? `linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), url(${myProfile.wallpaper})` : styles.chatArea.backgroundImage, backgroundSize: 'cover' }}>
                     {messages.map(msg => {
                         let timeLeft = null;
                         if (msg.burnAt) timeLeft = Math.max(0, Math.ceil((msg.burnAt - time) / 1000));
                         return (
                            <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
                                <div style={{...(msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === myProfile.phone ? '#004400' : '#333')}}>
-                                   {/* CONTENT RENDER */}
                                    {msg.type === 'text' && msg.text}
                                    {msg.type === 'image' && <img src={msg.text} style={{maxWidth:'100%', borderRadius:'5px'}} alt="msg"/>}
                                    {msg.type === 'video_file' && <video src={msg.text} controls style={{maxWidth:'100%', borderRadius:'5px'}} />}
                                    {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
-                                   
-                                   {/* V27: EXTRACTION FOOTER */}
                                    <div style={styles.msgFooter}>
                                        {timeLeft !== null ? <span style={{color:'orange'}}>🔥 {timeLeft}s</span> : <span></span>}
-                                       <div style={{display:'flex', gap:'8px'}}>
-                                           <span onClick={() => shareMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>🔗</span>
-                                           <span onClick={() => saveMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>💾</span>
-                                       </div>
+                                       <div style={{display:'flex', gap:'8px'}}><span onClick={() => shareMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>🔗</span><span onClick={() => saveMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>💾</span></div>
                                    </div>
                                </div>
                            </div>
@@ -547,8 +633,6 @@ const styles = {
   myMsg: { background: 'rgba(0, 50, 0, 0.3)', border: '1px solid #004400', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#e0ffe0', wordWrap: 'break-word' },
   otherMsg: { background: '#111', border: '1px solid #333', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#ccc', wordWrap: 'break-word' },
   emptyState: { flex: 1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#333' },
-  
-  // V27: EXTRACTION FOOTER STYLE
   msgFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', borderTop: '1px solid rgba(0,255,0,0.1)', paddingTop: '5px', opacity: 0.8 }
 };
 
