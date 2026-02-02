@@ -21,7 +21,8 @@ const DecryptedText = ({ text }) => {
   return <span>{display}</span>;
 };
 
-export default function ChatRoom({ user, logout }) {
+// NOW ACCEPTING 'theme' and 'toggleTheme' PROPS
+export default function ChatRoom({ user, logout, theme, toggleTheme }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -51,11 +52,7 @@ export default function ChatRoom({ user, logout }) {
 
   const sendMessage = async (content, type) => {
     await addDoc(collection(db, "messages"), {
-      text: content, 
-      type: type,    
-      sender: user.name,
-      createdAt: serverTimestamp(),
-      isSystem: false
+      text: content, type: type, sender: user.name, createdAt: serverTimestamp(), isSystem: false
     });
   };
 
@@ -71,10 +68,7 @@ export default function ChatRoom({ user, logout }) {
       if (file.type.startsWith('image/')) type = 'image';
       if (file.type.startsWith('video/')) type = 'video';
       await sendMessage(url, type);
-    } catch (error) {
-      console.error("Upload failed", error);
-      alert("UPLOAD FAILED");
-    }
+    } catch (error) { console.error("Upload failed", error); }
     setUploading(false);
   };
 
@@ -108,67 +102,81 @@ export default function ChatRoom({ user, logout }) {
   };
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <div style={styles.status}><span style={styles.dot}></span><span>UPLINK_V3_FULL</span></div>
+    <div style={{...styles.container, background: theme.bg, color: theme.primary}}>
+      <div style={{...styles.header, background: theme.bg, borderBottom: `1px solid ${theme.primary}`}}>
+        <div style={styles.status}>
+            <span style={{...styles.dot, background: theme.primary, boxShadow: `0 0 5px ${theme.primary}`}}></span>
+            <span>SECURE_UPLINK</span>
+        </div>
         <div style={styles.headerControls}>
-          <button onClick={() => startCall(false)} style={styles.iconBtn}>📞</button>
-          <button onClick={() => startCall(true)} style={styles.iconBtn}>🎥</button>
-          <button onClick={logout} style={styles.logoutBtn}>EXIT</button>
+          {/* THEME BUTTON */}
+          <button onClick={toggleTheme} style={{...styles.iconBtn, color: theme.primary}}>🎨</button>
+          
+          <button onClick={() => startCall(false)} style={{...styles.iconBtn, color: theme.primary}}>📞</button>
+          <button onClick={() => startCall(true)} style={{...styles.iconBtn, color: theme.primary}}>🎥</button>
+          <button onClick={logout} style={{...styles.logoutBtn, borderColor: 'red', color: 'red'}}>EXIT</button>
         </div>
       </div>
+
       <div style={styles.chatWindow}>
         {messages.map((msg) => (
           <div key={msg.id} style={{...styles.messageRow, justifyContent: msg.sender === user.name ? 'flex-end' : 'flex-start'}}>
-            <div style={msg.sender === user.name ? styles.myBubble : styles.otherBubble}>
-              <div style={styles.senderName}>{msg.sender.toUpperCase()}</div>
+            <div style={msg.sender === user.name 
+              ? {...styles.myBubble, background: theme.secondary, borderColor: theme.primary} 
+              : {...styles.otherBubble, borderColor: '#444'}
+            }>
+              <div style={{...styles.senderName, color: theme.primary}}>{msg.sender.toUpperCase()}</div>
               {msg.type === 'text' && <DecryptedText text={msg.text} />}
               {msg.type === 'image' && <img src={msg.text} alt="attachment" style={styles.media} />}
-              {msg.type === 'video' && <video src={msg.text} controls style={styles.media} />}
               {msg.type === 'audio' && <audio src={msg.text} controls style={styles.audio} />}
               {(msg.type === 'video_call' || msg.type === 'voice_call') && (
-                 <a href={msg.text} target="_blank" rel="noreferrer" style={styles.callLink}>
-                   {msg.type === 'video_call' ? '🎥 JOIN SECURE VIDEO' : '📞 JOIN SECURE VOICE'}
+                 <a href={msg.text} target="_blank" rel="noreferrer" style={{...styles.callLink, color: theme.primary, borderColor: theme.primary}}>
+                   {msg.type === 'video_call' ? '🎥 JOIN VIDEO' : '📞 JOIN VOICE'}
                  </a>
               )}
-              {msg.type === 'document' && <a href={msg.text} target="_blank" rel="noreferrer" style={{color:'#00ff00'}}>📄 DOWNLOAD FILE</a>}
             </div>
           </div>
         ))}
-        {uploading && <div style={{color:'#00ff00', textAlign:'center'}}>UPLOADING ENCRYPTED DATA...</div>}
+        {uploading && <div style={{textAlign:'center'}}>ENCRYPTING...</div>}
         <div ref={messagesEndRef} />
       </div>
-      <div style={styles.inputArea}>
+
+      <div style={{...styles.inputArea, background: theme.bg, borderTop: `1px solid ${theme.primary}`}}>
         <input type="file" ref={fileInputRef} style={{display:'none'}} onChange={handleFileUpload} />
-        <button onClick={() => fileInputRef.current.click()} style={styles.attachBtn}>📎</button>
-        <button onClick={toggleRecording} style={{...styles.attachBtn, color: isRecording ? 'red' : '#00ff00'}}>
+        <button onClick={() => fileInputRef.current.click()} style={{...styles.attachBtn, color: theme.primary}}>📎</button>
+        <button onClick={toggleRecording} style={{...styles.attachBtn, color: isRecording ? 'red' : theme.primary}}>
             {isRecording ? '⏹' : '🎤'}
         </button>
-        <input style={styles.input} value={input} onChange={(e) => setInput(e.target.value)} placeholder={isRecording ? "RECORDING..." : "TRANSMIT DATA..."} />
-        <button onClick={handleSend} style={styles.sendBtn}>📤</button>
+        <input 
+            style={{...styles.input, borderColor: theme.primary, color: theme.primary}} 
+            value={input} 
+            onChange={(e) => setInput(e.target.value)} 
+            placeholder="TRANSMIT..." 
+        />
+        <button onClick={handleSend} style={{...styles.sendBtn, background: theme.primary}}>📤</button>
       </div>
     </div>
   );
 }
 
 const styles = {
-  container: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#050505', color: '#00ff00', fontFamily: 'monospace' },
-  header: { padding: '15px', borderBottom: '1px solid #333', background: '#0a0a0a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  container: { display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'monospace' },
+  header: { padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
   status: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px' },
   headerControls: { display: 'flex', gap: '10px' },
-  dot: { width: '8px', height: '8px', background: '#00ff00', borderRadius: '50%', boxShadow: '0 0 5px #00ff00' },
-  logoutBtn: { background: 'transparent', border: '1px solid #ff3333', color: '#ff3333', padding: '5px 10px', fontSize: '10px', cursor: 'pointer' },
+  dot: { width: '8px', height: '8px', borderRadius: '50%' },
+  logoutBtn: { background: 'transparent', border: '1px solid', padding: '5px 10px', fontSize: '10px', cursor: 'pointer' },
   iconBtn: { background: 'none', border: 'none', cursor: 'pointer', fontSize: '18px' },
   chatWindow: { flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' },
   messageRow: { display: 'flex', width: '100%' },
-  myBubble: { background: 'rgba(0, 255, 0, 0.1)', border: '1px solid #00ff00', color: '#fff', padding: '10px', borderRadius: '15px 15px 0 15px', maxWidth: '80%' },
-  otherBubble: { background: '#222', border: '1px solid #444', color: '#ddd', padding: '10px', borderRadius: '15px 15px 15px 0', maxWidth: '80%' },
-  senderName: { fontSize: '9px', color: '#00ff00', marginBottom: '5px' },
+  myBubble: { border: '1px solid', color: '#fff', padding: '10px', borderRadius: '15px 15px 0 15px', maxWidth: '80%' },
+  otherBubble: { background: '#222', border: '1px solid', color: '#ddd', padding: '10px', borderRadius: '15px 15px 15px 0', maxWidth: '80%' },
+  senderName: { fontSize: '9px', marginBottom: '5px' },
   media: { maxWidth: '100%', borderRadius: '5px', marginTop: '5px' },
   audio: { width: '200px', marginTop: '5px' },
-  callLink: { display: 'block', background: '#003300', padding: '10px', color: '#00ff00', textDecoration: 'none', border: '1px dashed #00ff00', textAlign: 'center', marginTop: '5px' },
-  inputArea: { padding: '15px', background: '#0a0a0a', borderTop: '1px solid #333', display: 'flex', gap: '10px', alignItems: 'center' },
-  input: { flex: 1, padding: '15px', background: '#000', border: '1px solid #333', color: '#fff', fontFamily: 'monospace', outline: 'none', borderRadius: '5px' },
-  attachBtn: { background: 'none', border: 'none', color: '#00ff00', fontSize: '20px', cursor: 'pointer' },
-  sendBtn: { background: '#00ff00', color: '#000', border: 'none', padding: '0 20px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '5px' }
+  callLink: { display: 'block', padding: '10px', textDecoration: 'none', border: '1px dashed', textAlign: 'center', marginTop: '5px' },
+  inputArea: { padding: '15px', display: 'flex', gap: '10px', alignItems: 'center' },
+  input: { flex: 1, padding: '15px', background: 'transparent', border: '1px solid', fontFamily: 'monospace', outline: 'none', borderRadius: '5px' },
+  attachBtn: { background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer' },
+  sendBtn: { color: '#000', border: 'none', padding: '0 20px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '5px' }
 };
