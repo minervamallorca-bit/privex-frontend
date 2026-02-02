@@ -33,7 +33,7 @@ const playSound = (type) => {
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION: UMBRA V22.1 (ELASTIC SIDEBAR)
+// 2. MAIN APPLICATION: UMBRA V23 (ICONS RESTORED)
 // ---------------------------------------------------------
 function App() {
   // --- STATE ---
@@ -57,6 +57,7 @@ function App() {
   const [callStatus, setCallStatus] = useState('IDLE');
   
   const [burnMode, setBurnMode] = useState(false); 
+  const [isRecording, setIsRecording] = useState(false); // V23: Voice State
   const [time, setTime] = useState(Date.now()); 
   
   const messagesEndRef = useRef(null);
@@ -65,6 +66,8 @@ function App() {
   const pc = useRef(null);
   const localStream = useRef(null);
   const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null); // V23: Recorder Ref
+  const audioChunksRef = useRef([]);
 
   // --- RESPONSIVE CHECK ---
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -207,6 +210,32 @@ function App() {
     await addDoc(collection(db, "messages"), msgData);
   };
 
+  // V23: RESTORED VOICE RECORDING
+  const toggleRecording = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    } else {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mediaRecorderRef.current.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
+        const fileRef = ref(storage, `umbra_voice/${Date.now()}.mp3`);
+        await uploadBytes(fileRef, audioBlob);
+        const url = await getDownloadURL(fileRef);
+        
+        const chatID = getChatID(myProfile.phone, activeFriend.phone);
+        let msgData = { text: url, type: 'audio', sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
+        if (burnMode) { msgData.burnAt = Date.now() + 60000; msgData.isBurn = true; }
+        await addDoc(collection(db, "messages"), msgData);
+      };
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+    }
+  };
+
   const wipeChat = async () => {
     if (!window.confirm("CONFIRM: DELETE HISTORY?")) return;
     playSound('purge');
@@ -285,7 +314,7 @@ function App() {
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE NETWORK V22.1</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE NETWORK V23</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <button style={styles.btn} onClick={handleLogin}>ENTER</button>
@@ -298,12 +327,8 @@ function App() {
   return (
     <div style={styles.container}>
       
-      {/* SIDEBAR (CONTACTS) - UPDATED V22.1 */}
-      <div style={{
-          ...styles.sidebar,
-          display: isMobile && mobileView === 'CHAT' ? 'none' : 'flex' 
-      }}>
-          {/* SIDEBAR HEADER - Compact */}
+      {/* SIDEBAR */}
+      <div style={{...styles.sidebar, display: isMobile && mobileView === 'CHAT' ? 'none' : 'flex' }}>
           <div style={styles.sideHeader}>
              <div style={{flex:1, minWidth:0}}>
                  <div style={styles.truncatedText} title={myProfile.name}>{myProfile.name}</div>
@@ -312,7 +337,6 @@ function App() {
              <button onClick={handleLogout} style={{...styles.iconBtnSmall, color:'red', borderColor:'#333'}}>⏻</button>
           </div>
 
-          {/* ADD FRIEND INPUT */}
           <div style={styles.addSection}>
               <div style={{display:'flex', gap:'5px'}}>
                   <input style={styles.miniInput} placeholder="ADD PHONE #" value={friendPhone} onChange={e => setFriendPhone(e.target.value)} type="tel"/>
@@ -321,7 +345,6 @@ function App() {
               {addStatus && <div style={{fontSize:'10px', color:'orange', marginTop:'5px'}}>{addStatus}</div>}
           </div>
 
-          {/* REQUESTS */}
           {requests.length > 0 && (
              <div style={{padding:'10px', background:'#221100'}}>
                  <div style={{fontSize:'9px', color:'orange', marginBottom:'5px'}}>PENDING</div>
@@ -334,12 +357,11 @@ function App() {
              </div>
           )}
 
-          {/* CONTACT LIST - Elastic */}
           <div style={{flex:1, overflowY:'auto'}}>
               {contacts.map(c => (
                   <div key={c.phone} onClick={() => selectFriend(c)} style={{...styles.contactRow, background: activeFriend?.phone === c.phone ? '#111' : 'transparent'}}>
                       <img src={getAvatar(c.name)} style={styles.avatar} alt="av"/>
-                      <div style={{flex:1, minWidth:0}}> {/* minWidth 0 allows child truncation */}
+                      <div style={{flex:1, minWidth:0}}>
                           <div style={styles.contactName}>{c.name}</div>
                           <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
                       </div>
@@ -350,10 +372,7 @@ function App() {
       </div>
 
       {/* MAIN (CHAT) */}
-      <div style={{
-          ...styles.main,
-          display: isMobile && mobileView === 'LIST' ? 'none' : 'flex'
-      }}>
+      <div style={{...styles.main, display: isMobile && mobileView === 'LIST' ? 'none' : 'flex' }}>
           {activeFriend ? (
               <>
                 <div style={styles.chatHeader}>
@@ -363,7 +382,7 @@ function App() {
                         <div style={{fontSize:'10px', color: callStatus.includes('INCOMING') ? 'orange' : '#00ff00'}}>{callStatus === 'IDLE' ? 'SECURE' : callStatus}</div>
                     </div>
                     
-                    <div style={{display:'flex', gap:'5px'}}>
+                    <div style={{display:'flex', gap:'5px', flexShrink: 0}}>
                         <button onClick={wipeChat} style={{...styles.iconBtn, color:'#FF0000', borderColor:'#333'}}>🗑️</button>
                         <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>🔥</button>
                         {!callActive && <button onClick={startCall} style={styles.iconBtn}>🎥</button>}
@@ -389,6 +408,9 @@ function App() {
                            <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
                                <div style={{...(msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === myProfile.phone ? '#004400' : '#333')}}>
                                    {msg.type === 'image' ? <img src={msg.text} style={{maxWidth:'100%'}} alt="msg"/> : msg.text}
+                                   
+                                   {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
+                                   
                                    {timeLeft !== null && <div style={{fontSize:'8px', color:'orange', marginTop:'5px'}}>🔥 {timeLeft}s</div>}
                                </div>
                            </div>
@@ -397,9 +419,14 @@ function App() {
                     <div ref={messagesEndRef} />
                 </div>
 
+                {/* INPUT (V23: ICONS RESTORED) */}
                 <div style={styles.inputArea}>
                     <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
                     <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
+                    {/* MIC BUTTON IS BACK */}
+                    <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#333'}}>
+                        {isRecording ? '⏹' : '🎤'}
+                    </button>
                     <input value={input} onChange={e => setInput(e.target.value)} placeholder="MESSAGE..." style={styles.inputBar} onKeyPress={e => e.key === 'Enter' && sendMessage()}/>
                     <button onClick={sendMessage} style={styles.sendBtn}>SEND</button>
                 </div>
@@ -416,43 +443,26 @@ function App() {
 }
 
 // ---------------------------------------------------------
-// STYLES (UPDATED FOR ELASTIC LAYOUT)
+// STYLES
 // ---------------------------------------------------------
 const styles = {
   container: { height: '100dvh', width: '100vw', background: '#080808', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex', overflow: 'hidden' },
   
-  // LOGIN
   fullCenter: { height: '100dvh', width: '100vw', display:'flex', alignItems:'center', justifyContent:'center', background:'#080808' },
   loginBox: { border: '1px solid #00ff00', padding: '30px', width:'85%', maxWidth:'350px', textAlign: 'center', background: '#000' },
   input: { display: 'block', width: '100%', boxSizing:'border-box', background: '#0a0a0a', border: '1px solid #333', color: '#00ff00', padding: '15px', fontSize: '16px', outline: 'none', fontFamily:'monospace', marginBottom:'15px' },
   btn: { background: '#00ff00', color: 'black', border: 'none', padding: '15px', width: '100%', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' },
 
-  // SIDEBAR (ELASTIC)
-  sidebar: { 
-      // Desktop: Flexible width (25%) but constrained
-      flex: '0 0 25%',
-      minWidth: '250px',
-      maxWidth: '350px',
-      borderRight: '1px solid #1f1f1f', 
-      display: 'flex', 
-      flexDirection: 'column', 
-      background:'#0a0a0a',
-      // Mobile handled via display:none logic in component
-  },
-  
+  sidebar: { flex: '0 0 25%', minWidth: '250px', maxWidth: '350px', borderRight: '1px solid #1f1f1f', display: 'flex', flexDirection: 'column', background:'#0a0a0a' },
   sideHeader: { padding: '10px 15px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background:'#000' },
   addSection: { padding: '10px', borderBottom: '1px solid #1f1f1f' },
   miniInput: { flex: 1, background: '#111', border: '1px solid #333', color: '#fff', padding: '8px', fontFamily: 'monospace', outline: 'none', fontSize: '12px' },
   tinyBtn: { background: '#00ff00', color:'black', border:'none', fontSize:'9px', padding:'3px 6px', cursor:'pointer' },
-  
   contactRow: { display:'flex', alignItems:'center', gap:'10px', padding:'10px 15px', borderBottom:'1px solid #1f1f1f', cursor:'pointer' },
   avatar: { width:'35px', height:'35px', borderRadius:'50%', border:'1px solid #00ff00', flexShrink: 0 },
-  
-  // TEXT TRUNCATION (The "Adjustable" Magic)
   truncatedText: { fontWeight:'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   contactName: { fontWeight:'bold', fontSize:'14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
 
-  // MAIN CHAT
   main: { flex: 1, display: 'flex', flexDirection: 'column', background:'#050505', minWidth: 0 },
   chatHeader: { padding: '10px 15px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background:'#0a0a0a' },
   chatArea: { flex: 1, overflowY: 'auto', padding: '15px', backgroundImage: 'linear-gradient(rgba(0,0,0,0.95),rgba(0,0,0,0.95)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' },
@@ -461,7 +471,6 @@ const styles = {
   iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '44px', height: '44px', minWidth: '44px', fontSize: '18px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   iconBtnSmall: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '35px', height: '35px', fontSize: '16px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center' },
   sendBtn: { background: '#00ff00', color: 'black', border: 'none', padding: '0 15px', height: '44px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '2px', flexShrink: 0 },
-  
   myMsg: { background: 'rgba(0, 50, 0, 0.3)', border: '1px solid #004400', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#e0ffe0', wordWrap: 'break-word' },
   otherMsg: { background: '#111', border: '1px solid #333', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#ccc', wordWrap: 'break-word' },
   emptyState: { flex: 1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#333' }
