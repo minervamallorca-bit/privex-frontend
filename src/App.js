@@ -27,13 +27,13 @@ const playSound = (type) => {
   oscillator.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   oscillator.start();
-  oscillator.stop(audioCtx.currentTime + 0.3);
+  oscillator.stop(audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.3));
 };
 
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION: UMBRA V23 (ICONS RESTORED)
+// 2. MAIN APPLICATION: UMBRA V23.1 (VOICE & VIDEO)
 // ---------------------------------------------------------
 function App() {
   // --- STATE ---
@@ -55,9 +55,10 @@ function App() {
   const [input, setInput] = useState('');
   const [callActive, setCallActive] = useState(false);
   const [callStatus, setCallStatus] = useState('IDLE');
+  const [isVideoCall, setIsVideoCall] = useState(true); // Track call type
   
   const [burnMode, setBurnMode] = useState(false); 
-  const [isRecording, setIsRecording] = useState(false); // V23: Voice State
+  const [isRecording, setIsRecording] = useState(false); 
   const [time, setTime] = useState(Date.now()); 
   
   const messagesEndRef = useRef(null);
@@ -66,7 +67,7 @@ function App() {
   const pc = useRef(null);
   const localStream = useRef(null);
   const fileInputRef = useRef(null);
-  const mediaRecorderRef = useRef(null); // V23: Recorder Ref
+  const mediaRecorderRef = useRef(null); 
   const audioChunksRef = useRef([]);
 
   // --- RESPONSIVE CHECK ---
@@ -210,7 +211,6 @@ function App() {
     await addDoc(collection(db, "messages"), msgData);
   };
 
-  // V23: RESTORED VOICE RECORDING
   const toggleRecording = async () => {
     if (isRecording) {
       mediaRecorderRef.current.stop();
@@ -225,7 +225,6 @@ function App() {
         const fileRef = ref(storage, `umbra_voice/${Date.now()}.mp3`);
         await uploadBytes(fileRef, audioBlob);
         const url = await getDownloadURL(fileRef);
-        
         const chatID = getChatID(myProfile.phone, activeFriend.phone);
         let msgData = { text: url, type: 'audio', sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
         if (burnMode) { msgData.burnAt = Date.now() + 60000; msgData.isBurn = true; }
@@ -247,33 +246,62 @@ function App() {
     await batch.commit();
   };
 
-  // --- VIDEO CALL ---
-  const startCall = async () => {
+  // --- V23.1: CALL LOGIC (VIDEO & VOICE) ---
+  // mode: 'video' or 'audio'
+  const startCall = async (mode) => {
     setCallActive(true);
     setCallStatus('DIALING...');
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640 }, audio: true });
+    setIsVideoCall(mode === 'video');
+
+    const constraints = { 
+        audio: true, 
+        video: mode === 'video' ? { width: 640 } : false 
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     localStream.current = stream;
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    if (localVideoRef.current && mode === 'video') localVideoRef.current.srcObject = stream;
+
     pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
     pc.current.ontrack = e => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    
     const offer = await pc.current.createOffer();
     await pc.current.setLocalDescription(offer);
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
-    await setDoc(doc(db, "calls", chatID), { type: 'offer', sdp: JSON.stringify(offer), sender: myProfile.phone });
+    
+    await setDoc(doc(db, "calls", chatID), { 
+        type: 'offer', 
+        sdp: JSON.stringify(offer), 
+        sender: myProfile.phone,
+        mode: mode // Send mode to receiver
+    });
   };
 
   const answerCall = async () => {
     setCallActive(true);
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     const callDoc = await getDoc(doc(db, "calls", chatID));
-    const offer = JSON.parse(callDoc.data().sdp);
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640 }, audio: true });
+    const data = callDoc.data();
+    const offer = JSON.parse(data.sdp);
+    
+    // Check mode
+    const incomingMode = data.mode || 'video';
+    setIsVideoCall(incomingMode === 'video');
+
+    const constraints = { 
+        audio: true, 
+        video: incomingMode === 'video' ? { width: 640 } : false 
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
     localStream.current = stream;
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    if (localVideoRef.current && incomingMode === 'video') localVideoRef.current.srcObject = stream;
+    
     pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
     pc.current.ontrack = e => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    
     await pc.current.setRemoteDescription(offer);
     const answer = await pc.current.createAnswer();
     await pc.current.setLocalDescription(answer);
@@ -294,7 +322,7 @@ function App() {
       const unsub = onSnapshot(doc(db, "calls", chatID), async (snap) => {
           const data = snap.data();
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
-              setCallStatus('INCOMING...');
+              setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
               playSound('ring');
           }
           if (data && data.type === 'answer' && callActive && pc.current) {
@@ -314,7 +342,7 @@ function App() {
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE NETWORK V23</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE NETWORK V23.1</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <button style={styles.btn} onClick={handleLogin}>ENTER</button>
@@ -385,19 +413,36 @@ function App() {
                     <div style={{display:'flex', gap:'5px', flexShrink: 0}}>
                         <button onClick={wipeChat} style={{...styles.iconBtn, color:'#FF0000', borderColor:'#333'}}>🗑️</button>
                         <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>🔥</button>
-                        {!callActive && <button onClick={startCall} style={styles.iconBtn}>🎥</button>}
+                        
+                        {!callActive && (
+                            <>
+                                {/* V23.1: BOTH BUTTONS */}
+                                <button onClick={() => startCall('audio')} style={styles.iconBtn}>📞</button>
+                                <button onClick={() => startCall('video')} style={styles.iconBtn}>🎥</button>
+                            </>
+                        )}
+                        
+                        {/* INCOMING ANSWER BUTTON */}
                         {callStatus.includes('INCOMING') && <button onClick={answerCall} style={{...styles.iconBtn, background:'#00ff00', color:'black'}}>📞</button>}
+                        
                         {callActive && <button onClick={endCall} style={{...styles.iconBtn, color:'red', borderColor:'red'}}>X</button>}
                     </div>
                 </div>
 
-                {callActive && (
+                {/* VIDEO FEED (Only show if video call) */}
+                {callActive && isVideoCall && (
                     <div style={{height: '35%', borderBottom: '1px solid #00ff00', background: '#000', position:'relative'}}>
                         <video ref={remoteVideoRef} autoPlay playsInline style={{width:'100%', height:'100%', objectFit:'cover'}} />
                         <div style={{position:'absolute', bottom:'10px', right:'10px', width:'80px', height:'110px', border:'1px solid #00ff00', background:'black'}}>
                             <video ref={localVideoRef} autoPlay playsInline muted style={{width:'100%', height:'100%', objectFit:'cover'}} />
                         </div>
                     </div>
+                )}
+                {/* AUDIO FEED (Visual Placeholder) */}
+                {callActive && !isVideoCall && (
+                     <div style={{height: '100px', borderBottom: '1px solid #00ff00', background: '#000', display:'flex', alignItems:'center', justifyContent:'center', color:'#00ff00'}}>
+                         <div>AUDIO ENCRYPTED LINK ACTIVE...</div>
+                     </div>
                 )}
 
                 <div style={styles.chatArea}>
@@ -408,9 +453,7 @@ function App() {
                            <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
                                <div style={{...(msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === myProfile.phone ? '#004400' : '#333')}}>
                                    {msg.type === 'image' ? <img src={msg.text} style={{maxWidth:'100%'}} alt="msg"/> : msg.text}
-                                   
                                    {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
-                                   
                                    {timeLeft !== null && <div style={{fontSize:'8px', color:'orange', marginTop:'5px'}}>🔥 {timeLeft}s</div>}
                                </div>
                            </div>
@@ -419,11 +462,9 @@ function App() {
                     <div ref={messagesEndRef} />
                 </div>
 
-                {/* INPUT (V23: ICONS RESTORED) */}
                 <div style={styles.inputArea}>
                     <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
                     <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
-                    {/* MIC BUTTON IS BACK */}
                     <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#333'}}>
                         {isRecording ? '⏹' : '🎤'}
                     </button>
