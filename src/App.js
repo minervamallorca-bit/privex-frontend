@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from './firebase'; 
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc, getDoc, deleteDoc, updateDoc, writeBatch, getDocs, where } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, getDocs, or, and } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // ---------------------------------------------------------
-// 1. SOUNDS & UTILS
+// 1. UTILS & SOUNDS
 // ---------------------------------------------------------
 const playSound = (type) => {
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -17,401 +17,386 @@ const playSound = (type) => {
     oscillator.frequency.setValueAtTime(0, audioCtx.currentTime + 0.1);
     oscillator.frequency.setValueAtTime(800, audioCtx.currentTime + 0.2);
     gainNode.gain.value = 0.05;
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    oscillator.start();
-    oscillator.stop(audioCtx.currentTime + 0.4);
-    return;
-  }
-
-  if (type === 'purge') {
-    oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
-    oscillator.type = 'sawtooth';
-    oscillator.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.5);
-    gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
   } else {
-    oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+    oscillator.frequency.setValueAtTime(type === 'purge' ? 150 : 800, audioCtx.currentTime);
     oscillator.type = 'sine';
-    oscillator.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.1);
     gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
   }
-
-  gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.1));
+  
   oscillator.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   oscillator.start();
-  oscillator.stop(audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.3));
+  oscillator.stop(audioCtx.currentTime + 0.3);
 };
 
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION: UMBRA V20 (IDENTITY TOGGLE)
+// 2. MAIN APPLICATION: UMBRA V21 (THE NETWORK)
 // ---------------------------------------------------------
 function App() {
-  const [user, setUser] = useState(null); 
+  // APP STATE
+  const [view, setView] = useState('LOGIN'); // LOGIN, CONTACTS, CHAT
+  const [myProfile, setMyProfile] = useState(null); // { phone, name }
+  const [activeFriend, setActiveFriend] = useState(null); // The friend we are chatting with
+  const [contacts, setContacts] = useState([]);
+  const [requests, setRequests] = useState([]);
+  
+  // LOGIN INPUTS
+  const [inputPhone, setInputPhone] = useState('');
+  const [inputName, setInputName] = useState('');
+  
+  // ADD FRIEND INPUT
+  const [friendPhone, setFriendPhone] = useState('');
+  const [addStatus, setAddStatus] = useState('');
+
+  // CHAT STATE (From previous versions)
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [typingUsers, setTypingUsers] = useState([]); 
-  const [status, setStatus] = useState('SECURE'); 
-  
-  const [burnMode, setBurnMode] = useState(false); 
-  const [showIdentity, setShowIdentity] = useState(false); // V20: TOGGLE STATE
-  const [time, setTime] = useState(Date.now()); 
-
-  const [loginName, setLoginName] = useState('');
-  const [loginChannel, setLoginChannel] = useState('MAIN');
-  const [loginKey, setLoginKey] = useState(''); 
-  const [loginError, setLoginError] = useState('');
-
-  // --- WEBRTC STATE ---
   const [callActive, setCallActive] = useState(false);
-  const [callStatus, setCallStatus] = useState('IDLE'); 
-  const [localStream, setLocalStream] = useState(null);
-  const [remoteStream, setRemoteStream] = useState(null);
+  const [callStatus, setCallStatus] = useState('IDLE');
   
-  const pc = useRef(null);
+  // REFS
+  const messagesEndRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
-  const messagesEndRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const lastTypingTime = useRef(0);
+  const pc = useRef(null);
+  const localStream = useRef(null);
 
-  const servers = {
-    iceServers: [
-      { urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302'] }
-    ]
-  };
+  // -------------------------------------------------------
+  // AUTH & LOGIN
+  // -------------------------------------------------------
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    const cleanPhone = inputPhone.replace(/\D/g, ''); // Remove non-digits
+    if (cleanPhone.length < 5 || !inputName.trim()) return;
 
-  const mediaConstraints = {
-    audio: true,
-    video: {
-      width: { ideal: 640 },   
-      height: { ideal: 480 },
-      facingMode: "user",
-      frameRate: { max: 20 }   
+    const userDocRef = doc(db, "users", cleanPhone);
+    const userSnap = await getDoc(userDocRef);
+
+    if (!userSnap.exists()) {
+      // Register New User
+      await setDoc(userDocRef, { phone: cleanPhone, name: inputName, createdAt: serverTimestamp() });
+    } else {
+      // Update Name if changed
+      await updateDoc(userDocRef, { name: inputName });
     }
-  };
-
-  // --- CLEANUP ---
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTime(Date.now()); 
-      messages.forEach(async (msg) => {
-        if (msg.burnAt && msg.burnAt < Date.now() && msg.sender === user?.name) {
-           try { await deleteDoc(doc(db, "messages", msg.id)); } catch(e) {}
-        }
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [messages, user]);
-
-  // --- MESSAGES ---
-  useEffect(() => {
-    if (!user) return;
-    const q = query(collection(db, "messages"), orderBy("createdAt", "asc"), limit(100));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const filteredMessages = allMessages.filter(msg => {
-        const msgChannel = msg.channel || 'MAIN';
-        if (msg.burnAt && msg.burnAt < Date.now()) return false; 
-        return msgChannel === user.channel;
-      });
-      if (filteredMessages.length > messages.length && messages.length > 0) {
-        const lastMsg = filteredMessages[filteredMessages.length - 1];
-        if (lastMsg.sender !== user.name) playSound('ping');
-      }
-      setMessages(filteredMessages);
-    });
-    return () => unsubscribe();
-  }, [user, messages.length]);
-
-  // --- TYPING ---
-  useEffect(() => {
-    if (!user) return;
-    const q = query(collection(db, "active_typing"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-        const now = Date.now();
-        const activeTypers = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            if (data.channel === user.channel && (now - data.timestamp) < 4000) activeTypers.push(data.user);
-        });
-        setTypingUsers(activeTypers);
-    });
-    return () => unsubscribe();
-  }, [user]);
-
-  // --- VIDEO STREAM SYNC ---
-  useEffect(() => {
-    if (callActive && localStream && localVideoRef.current) {
-        localVideoRef.current.srcObject = localStream;
-    }
-  }, [callActive, localStream]);
-
-  // --- SIGNALING ---
-  useEffect(() => {
-    if (!user) return;
-    const callDocRef = doc(db, "calls", user.channel);
-    const unsubscribe = onSnapshot(callDocRef, async (snapshot) => {
-        const data = snapshot.data();
-        if (data && data.type === 'offer' && !callActive && data.sender !== user.name) {
-            setCallStatus('INCOMING...');
-            playSound('ring');
-        }
-        if (pc.current && data && data.type === 'answer' && callActive && data.receiver === user.name) {
-             if (!pc.current.currentRemoteDescription) {
-                 const answerDescription = new RTCSessionDescription(data.answer);
-                 await pc.current.setRemoteDescription(answerDescription);
-             }
-        }
-    });
-    return () => unsubscribe();
-  }, [user, callActive]);
-
-  // --- CALL FUNCTIONS ---
-  const startGhostWire = async () => {
-    setCallActive(true);
-    setCallStatus('DIALING...');
     
-    const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-    setLocalStream(stream);
-    setRemoteStream(new MediaStream());
-
-    pc.current = new RTCPeerConnection(servers);
-    stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
-
-    pc.current.ontrack = (event) => {
-        event.streams[0].getTracks().forEach(track => setRemoteStream(prev => { prev.addTrack(track); return prev; }));
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
-    };
-
-    const offerDescription = await pc.current.createOffer();
-    await pc.current.setLocalDescription(offerDescription);
-
-    const callOffer = {
-        type: 'offer',
-        offer: { sdp: offerDescription.sdp, type: offerDescription.type },
-        sender: user.name,
-        channel: user.channel,
-        timestamp: Date.now()
-    };
-    
-    await setDoc(doc(db, "calls", user.channel), callOffer);
-    setCallStatus('WAITING...');
+    setMyProfile({ phone: cleanPhone, name: inputName });
+    setView('CONTACTS');
   };
 
-  const answerGhostWire = async () => {
-    setCallActive(true);
-    setCallStatus('CONNECTING...');
+  // -------------------------------------------------------
+  // DATA LISTENERS (FRIENDS & REQUESTS)
+  // -------------------------------------------------------
+  useEffect(() => {
+    if (!myProfile) return;
 
-    const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-    setLocalStream(stream);
-    setRemoteStream(new MediaStream());
-
-    pc.current = new RTCPeerConnection(servers);
-    stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
-
-    pc.current.ontrack = (event) => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
-    };
-
-    const callDoc = await getDoc(doc(db, "calls", user.channel));
-    const callData = callDoc.data();
-
-    await pc.current.setRemoteDescription(new RTCSessionDescription(callData.offer));
-
-    const answerDescription = await pc.current.createAnswer();
-    await pc.current.setLocalDescription(answerDescription);
-
-    await updateDoc(doc(db, "calls", user.channel), {
-        type: 'answer',
-        answer: { sdp: answerDescription.sdp, type: answerDescription.type },
-        receiver: callData.sender,
-        sender: user.name
+    // 1. Listen for INCOMING REQUESTS
+    const qReq = query(collection(db, "friend_requests"), where("to", "==", myProfile.phone), where("status", "==", "pending"));
+    const unsubReq = onSnapshot(qReq, (snap) => {
+       const reqs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+       setRequests(reqs);
+       if(reqs.length > 0) playSound('ping');
     });
-    setCallStatus('LINKED');
-  };
 
-  const endGhostWire = async () => {
-     pc.current?.close();
-     localStream?.getTracks().forEach(t => t.stop());
-     setCallActive(false);
-     setCallStatus('IDLE');
-     try { await deleteDoc(doc(db, "calls", user.channel)); } catch (e) {}
-  };
+    // 2. Listen for MY CONTACTS (Mutual Friends)
+    const qContacts = query(collection(db, "users", myProfile.phone, "friends"));
+    const unsubContacts = onSnapshot(qContacts, (snap) => {
+       setContacts(snap.docs.map(d => d.data()));
+    });
 
-  // --- ACTIONS ---
-  const handleInputChange = async (e) => {
-    setInput(e.target.value);
-    if (!user) return;
-    const now = Date.now();
-    if (now - lastTypingTime.current > 1000) { 
-        lastTypingTime.current = now;
-        try { await setDoc(doc(db, "active_typing", `${user.channel}_${user.name}`), { user: user.name, channel: user.channel, timestamp: now }); } catch (err) {}
+    return () => { unsubReq(); unsubContacts(); };
+  }, [myProfile]);
+
+  // -------------------------------------------------------
+  // FRIENDSHIP LOGIC
+  // -------------------------------------------------------
+  const sendFriendRequest = async () => {
+    const targetPhone = friendPhone.replace(/\D/g, '');
+    if (targetPhone === myProfile.phone) return setAddStatus("ERROR: CANNOT ADD SELF");
+    
+    // Check if user exists
+    const targetDoc = await getDoc(doc(db, "users", targetPhone));
+    if (!targetDoc.exists()) {
+       // OPTIONAL: Send SMS invite logic here (requires paid API)
+       // For now, we simulate the request waiting for them to join
+       setAddStatus("USER NOT FOUND. TELL THEM TO JOIN UMBRA!");
+       return;
     }
+
+    // Send Request
+    await addDoc(collection(db, "friend_requests"), {
+       from: myProfile.phone,
+       fromName: myProfile.name,
+       to: targetPhone,
+       status: 'pending',
+       createdAt: serverTimestamp()
+    });
+    setAddStatus("REQUEST SENT");
+    setFriendPhone('');
   };
 
-  const handleSend = async () => {
+  const acceptRequest = async (req) => {
+    // 1. Add them to MY friends
+    await setDoc(doc(db, "users", myProfile.phone, "friends", req.from), {
+        phone: req.from,
+        name: req.fromName
+    });
+    // 2. Add ME to THEIR friends
+    await setDoc(doc(db, "users", req.from, "friends", myProfile.phone), {
+        phone: myProfile.phone,
+        name: myProfile.name
+    });
+    // 3. Delete Request
+    await deleteDoc(doc(db, "friend_requests", req.id));
+  };
+
+  // -------------------------------------------------------
+  // CHAT LOGIC (1-on-1)
+  // -------------------------------------------------------
+  // Generate a unique Channel ID for 1-on-1 (Always same order: low_high)
+  const getChatID = (phoneA, phoneB) => {
+     return parseInt(phoneA) < parseInt(phoneB) ? `${phoneA}_${phoneB}` : `${phoneB}_${phoneA}`;
+  };
+
+  const openChat = (friend) => {
+     setActiveFriend(friend);
+     setView('CHAT');
+  };
+
+  // Listen to messages for current active chat
+  useEffect(() => {
+    if (view !== 'CHAT' || !activeFriend || !myProfile) return;
+    const chatID = getChatID(myProfile.phone, activeFriend.phone);
+    
+    const q = query(collection(db, "messages"), where("channel", "==", chatID), orderBy("createdAt", "asc"), limit(50));
+    const unsub = onSnapshot(q, (snap) => {
+       setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    });
+    return () => unsub();
+  }, [view, activeFriend, myProfile]);
+
+  const sendMessage = async () => {
     if (!input.trim()) return;
-    let msgData = { text: input, type: 'text', sender: user.name, channel: user.channel, createdAt: serverTimestamp() };
-    if (burnMode) { msgData.burnAt = Date.now() + 60000; msgData.isBurn = true; }
-    await addDoc(collection(db, "messages"), msgData);
+    const chatID = getChatID(myProfile.phone, activeFriend.phone);
+    await addDoc(collection(db, "messages"), {
+       text: input,
+       sender: myProfile.phone, // Use Phone as ID
+       senderName: myProfile.name, // Display Name
+       channel: chatID,
+       type: 'text',
+       createdAt: serverTimestamp()
+    });
     setInput('');
   };
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setUploading(true);
-    const fileRef = ref(storage, `umbra_files/${Date.now()}_${file.name}`);
-    await uploadBytes(fileRef, file);
-    const url = await getDownloadURL(fileRef);
-    let msgData = { text: url, type: file.type.startsWith('image/') ? 'image' : 'document', sender: user.name, channel: user.channel, createdAt: serverTimestamp() };
-    await addDoc(collection(db, "messages"), msgData);
-    setUploading(false);
+  // -------------------------------------------------------
+  // VIDEO CALL LOGIC (GHOST WIRE V2)
+  // -------------------------------------------------------
+  const startCall = async () => {
+    setCallActive(true);
+    setCallStatus('DIALING...');
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640 }, audio: true });
+    localStream.current = stream;
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+
+    pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
+    stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
+    
+    pc.current.ontrack = e => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    
+    const offer = await pc.current.createOffer();
+    await pc.current.setLocalDescription(offer);
+    
+    // Signal DB
+    const chatID = getChatID(myProfile.phone, activeFriend.phone);
+    await setDoc(doc(db, "calls", chatID), { type: 'offer', sdp: JSON.stringify(offer), sender: myProfile.phone });
   };
 
-  const toggleRecording = async () => {
-    if (isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    } else {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      audioChunksRef.current = [];
-      mediaRecorderRef.current.ondataavailable = (e) => audioChunksRef.current.push(e.data);
-      mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
-        const fileRef = ref(storage, `umbra_voice/${Date.now()}.mp3`);
-        await uploadBytes(fileRef, audioBlob);
-        const url = await getDownloadURL(fileRef);
-        await addDoc(collection(db, "messages"), { text: url, type: 'audio', sender: user.name, channel: user.channel, createdAt: serverTimestamp() });
-      };
-      mediaRecorderRef.current.start();
-      setIsRecording(true);
-    }
+  const answerCall = async () => {
+    setCallActive(true);
+    const chatID = getChatID(myProfile.phone, activeFriend.phone);
+    const callDoc = await getDoc(doc(db, "calls", chatID));
+    const offer = JSON.parse(callDoc.data().sdp);
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640 }, audio: true });
+    localStream.current = stream;
+    if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+
+    pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
+    stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
+    pc.current.ontrack = e => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+
+    await pc.current.setRemoteDescription(offer);
+    const answer = await pc.current.createAnswer();
+    await pc.current.setLocalDescription(answer);
+
+    await updateDoc(doc(db, "calls", chatID), { type: 'answer', sdp: JSON.stringify(answer) });
   };
 
-  const wipeChannel = async () => {
-    if (!window.confirm("CONFIRM: DELETE ALL HISTORY?")) return;
-    playSound('purge');
-    const q = query(collection(db, "messages"), where("channel", "==", user.channel));
-    const snapshot = await getDocs(q);
-    const batch = writeBatch(db);
-    snapshot.docs.forEach((doc) => { batch.delete(doc.ref); });
-    await batch.commit();
-    setStatus("HISTORY PURGED");
-    setTimeout(() => setStatus("SECURE"), 3000);
+  const endCall = async () => {
+     const chatID = getChatID(myProfile.phone, activeFriend.phone);
+     await deleteDoc(doc(db, "calls", chatID));
+     if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
+     pc.current?.close();
+     setCallActive(false);
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    if (!loginName.trim()) return;
-    const safeChannel = loginChannel.trim().toUpperCase().replace(/\s/g, '_') || 'MAIN';
-    setUser({ name: loginName, id: Date.now(), channel: safeChannel });
-  };
+  // Signal Listener
+  useEffect(() => {
+      if (view !== 'CHAT' || !activeFriend) return;
+      const chatID = getChatID(myProfile.phone, activeFriend.phone);
+      const unsub = onSnapshot(doc(db, "calls", chatID), async (snap) => {
+          const data = snap.data();
+          if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
+              setCallStatus('INCOMING CALL...');
+              playSound('ring');
+          }
+          if (data && data.type === 'answer' && callActive && pc.current) {
+              await pc.current.setRemoteDescription(JSON.parse(data.sdp));
+          }
+          if (!data && callActive) {
+             // Call ended by other party
+             setCallActive(false);
+             if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
+          }
+      });
+      return () => unsub();
+  }, [view, activeFriend, callActive]);
 
-  if (!user) {
-    return (
-      <div style={styles.container}>
-        <div style={styles.box}>
-          <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// IDENTITY PROTOCOL V20.0</div>
-          <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
-            <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
-            <div style={{display:'flex', gap:'10px'}}>
-                <input value={loginChannel} onChange={e => setLoginChannel(e.target.value)} type="text" placeholder="FREQUENCY" style={{...styles.input, flex:1}} />
-                <input value={loginKey} onChange={e => setLoginKey(e.target.value)} type="password" placeholder="KEY" style={{...styles.input, width:'80px'}} />
-            </div>
-            <button type="submit" style={styles.btn}>INITIATE UPLINK</button>
-          </form>
+  // -------------------------------------------------------
+  // RENDER: LOGIN SCREEN
+  // -------------------------------------------------------
+  if (view === 'LOGIN') {
+     return (
+        <div style={styles.container}>
+           <div style={styles.box}>
+              <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE NETWORK V21</div>
+              <input style={styles.input} placeholder="YOUR PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
+              <input style={styles.input} placeholder="CODENAME (DISPLAY NAME)" value={inputName} onChange={e => setInputName(e.target.value)}/>
+              <button style={styles.btn} onClick={handleLogin}>ENTER NETWORK</button>
+           </div>
         </div>
-      </div>
-    );
+     );
   }
 
+  // -------------------------------------------------------
+  // RENDER: CONTACTS LIST (HOME)
+  // -------------------------------------------------------
+  if (view === 'CONTACTS') {
+     return (
+        <div style={styles.container}>
+           {/* HEADER */}
+           <div style={styles.header}>
+              <div>
+                  <span style={{fontWeight:'bold', display:'block'}}>{myProfile.name.toUpperCase()}</span>
+                  <span style={{fontSize:'10px'}}>ID: {myProfile.phone}</span>
+              </div>
+              <button style={{...styles.iconBtn, color:'red'}} onClick={() => setView('LOGIN')}>⏻</button>
+           </div>
+
+           {/* ADD FRIEND SECTION */}
+           <div style={{padding:'15px', borderBottom:'1px solid #333'}}>
+              <div style={{display:'flex', gap:'10px'}}>
+                  <input style={{...styles.inputBar, marginBottom:0}} placeholder="ADD PHONE NUMBER..." value={friendPhone} onChange={e => setFriendPhone(e.target.value)} type="tel"/>
+                  <button style={styles.iconBtn} onClick={sendFriendRequest}>+</button>
+              </div>
+              {addStatus && <div style={{fontSize:'10px', color:'orange', marginTop:'5px'}}>{addStatus}</div>}
+           </div>
+
+           {/* REQUESTS LIST */}
+           {requests.length > 0 && (
+              <div style={{padding:'15px', background:'#111'}}>
+                  <div style={{fontSize:'10px', color:'orange', marginBottom:'10px'}}>PENDING REQUESTS</div>
+                  {requests.map(req => (
+                      <div key={req.id} style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'10px'}}>
+                          <span>{req.fromName} ({req.from})</span>
+                          <button style={{...styles.btn, padding:'5px 10px', width:'auto', fontSize:'10px'}} onClick={() => acceptRequest(req)}>ACCEPT</button>
+                      </div>
+                  ))}
+              </div>
+           )}
+
+           {/* CONTACTS LIST */}
+           <div style={{flex:1, overflowY:'auto', padding:'15px'}}>
+              <div style={{fontSize:'10px', opacity:0.5, marginBottom:'10px'}}>CONTACTS</div>
+              {contacts.map(contact => (
+                  <div key={contact.phone} onClick={() => openChat(contact)} style={styles.contactRow}>
+                      <img src={getAvatar(contact.name)} style={{width:'35px', height:'35px', borderRadius:'50%', border:'1px solid #00ff00'}}/>
+                      <div style={{flex:1}}>
+                         <div style={{fontWeight:'bold'}}>{contact.name}</div>
+                         <div style={{fontSize:'10px', opacity:0.7}}>{contact.phone}</div>
+                      </div>
+                      <div style={{color:'#00ff00'}}>➤</div>
+                  </div>
+              ))}
+              {contacts.length === 0 && <div style={{textAlign:'center', marginTop:'30px', opacity:0.5}}>NO CONTACTS. ADD A NUMBER ABOVE.</div>}
+           </div>
+        </div>
+     );
+  }
+
+  // -------------------------------------------------------
+  // RENDER: CHAT ROOM
+  // -------------------------------------------------------
   return (
     <div style={styles.container}>
-      {/* HEADER */}
+      {/* CHAT HEADER */}
       <div style={styles.header}>
-        <div style={{flex: 1, minWidth: 0, paddingRight: '10px'}}>
-          <span style={{fontWeight:'bold', display:'block', letterSpacing:'1px', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
-             {/* V20: IDENTITY TOGGLE LOGIC */}
-             {showIdentity ? `ID: ${user.name.toUpperCase()}` : user.channel}
-          </span>
-          <span style={{fontSize:'10px', color: '#00ff00', display: 'block'}}>
-             {showIdentity ? 'UMBRA AGENT' : callStatus}
-          </span>
-        </div>
-        
-        <div style={{display:'flex', gap:'5px', alignItems:'center'}}>
-           {/* V20: IDENTITY BUTTON */}
-           <button 
-             onClick={() => setShowIdentity(!showIdentity)} 
-             style={{...styles.iconBtn, color: showIdentity ? '#00ff00' : '#444', borderColor: showIdentity ? '#00ff00' : '#333'}}
-           >
-             👤
-           </button>
-
-           <button onClick={wipeChannel} style={{...styles.iconBtn, color: '#FF0000', borderColor: '#333'}}>🗑️</button>
-           <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>🔥</button>
-           {!callActive && <button onClick={startGhostWire} style={{...styles.iconBtn, color: '#00ff00'}}>🎥</button>}
-           {callStatus === 'INCOMING...' && <button onClick={answerGhostWire} style={{...styles.iconBtn, background: '#00ff00', color: 'black', animation: 'blink 0.5s infinite'}}>📞</button>}
-           {callActive && <button onClick={endGhostWire} style={{...styles.iconBtn, color: 'red', borderColor: 'red'}}>X</button>}
-           <button onClick={() => setUser(null)} style={{...styles.iconBtn, color:'#555', borderColor:'#333'}}>⏻</button>
-        </div>
+         <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+             <button style={styles.iconBtn} onClick={() => setView('CONTACTS')}>←</button>
+             <div>
+                 <span style={{fontWeight:'bold', display:'block'}}>{activeFriend.name}</span>
+                 <span style={{fontSize:'10px', color: callStatus.includes('INCOMING') ? 'orange' : '#00ff00'}}>
+                     {callStatus === 'IDLE' ? activeFriend.phone : callStatus}
+                 </span>
+             </div>
+         </div>
+         <div style={{display:'flex', gap:'5px'}}>
+             {!callActive && <button onClick={startCall} style={styles.iconBtn}>🎥</button>}
+             {callStatus.includes('INCOMING') && <button onClick={answerCall} style={{...styles.iconBtn, background:'#00ff00', color:'black'}}>📞</button>}
+             {callActive && <button onClick={endCall} style={{...styles.iconBtn, color:'red', borderColor:'red'}}>X</button>}
+         </div>
       </div>
 
-      {/* VIDEO */}
+      {/* VIDEO AREA */}
       {callActive && (
-        <div style={{height: '35%', borderBottom: '1px solid #00ff00', background: '#000', position:'relative', display:'flex'}}>
+        <div style={{height: '35%', borderBottom: '1px solid #00ff00', background: '#000', position:'relative'}}>
             <video ref={remoteVideoRef} autoPlay playsInline style={{width:'100%', height:'100%', objectFit:'cover'}} />
-            <div style={{position:'absolute', bottom:'10px', right:'10px', width:'80px', height:'110px', border:'1px solid #00ff00', background:'black', zIndex: 10}}>
+            <div style={{position:'absolute', bottom:'10px', right:'10px', width:'80px', height:'110px', border:'1px solid #00ff00', background:'black'}}>
                 <video ref={localVideoRef} autoPlay playsInline muted style={{width:'100%', height:'100%', objectFit:'cover'}} />
             </div>
         </div>
       )}
 
-      {/* CHAT */}
+      {/* MESSAGES */}
       <div style={styles.chatArea}>
-        {messages.map(msg => {
-            let timeLeft = null;
-            if (msg.burnAt) timeLeft = Math.max(0, Math.ceil((msg.burnAt - time) / 1000));
-            return (
-              <div key={msg.id} style={{display:'flex', flexDirection: 'column', alignItems: msg.sender === user.name ? 'flex-end' : 'flex-start', marginBottom:'15px'}}>
-                 <div style={{display:'flex', alignItems:'center', gap:'8px', marginBottom:'5px', flexDirection: msg.sender === user.name ? 'row-reverse' : 'row'}}>
-                    <img src={getAvatar(msg.sender)} alt="avatar" style={{width:'20px', height:'20px', borderRadius:'50%', border:'1px solid #00ff00'}} />
-                    <div style={{fontSize:'10px', color: '#00ff00', opacity:0.8}}>
-                        {msg.sender.toUpperCase()} {timeLeft !== null && <span style={{color:'orange'}}>🔥{timeLeft}</span>}
-                    </div>
+         {messages.map(msg => (
+             <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
+                 <div style={msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg}>
+                     {msg.text}
                  </div>
-                 <div style={{...(msg.sender === user.name ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === user.name ? '#004400' : '#333')}}>
-                    {msg.type === 'image' ? <img src={msg.text} style={{maxWidth:'100%'}} alt="img"/> : msg.text}
-                 </div>
-              </div>
-            );
-        })}
-        {typingUsers.length > 0 && <div style={{color:'#00ff00', fontSize:'10px', padding:'10px', animation:'blink 1.5s infinite'}}>{typingUsers.join(', ')} TYPING...</div>}
-        <div ref={messagesEndRef} />
+             </div>
+         ))}
+         <div ref={messagesEndRef} />
       </div>
 
       {/* INPUT */}
       <div style={styles.inputArea}>
-        <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
-        <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
-        <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#00ff00'}}>{isRecording ? '⏹' : '🎤'}</button>
-        <input value={input} onChange={handleInputChange} placeholder="MESSAGE..." style={styles.inputBar} onKeyPress={(e) => e.key === 'Enter' && handleSend()} />
-        <button onClick={handleSend} style={styles.sendBtn}>SEND</button>
+          <input value={input} onChange={e => setInput(e.target.value)} placeholder="MESSAGE..." style={styles.inputBar} onKeyPress={e => e.key === 'Enter' && sendMessage()}/>
+          <button onClick={sendMessage} style={styles.sendBtn}>SEND</button>
       </div>
     </div>
   );
 }
 
+// ---------------------------------------------------------
+// STYLES
+// ---------------------------------------------------------
 const styles = {
   container: { height: '100dvh', width: '100vw', background: '#080808', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
   box: { margin: 'auto', border: '1px solid #00ff00', padding: '30px', width:'85%', maxWidth:'400px', textAlign: 'center', background: '#000' },
@@ -424,7 +409,8 @@ const styles = {
   inputArea: { paddingTop: '10px', paddingBottom: 'calc(10px + env(safe-area-inset-bottom))', paddingLeft: '10px', paddingRight: '10px', background: '#0a0a0a', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 },
   inputBar: { flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '0 12px', height: '44px', lineHeight: '44px', fontFamily: 'monospace', outline: 'none', borderRadius: '2px', minWidth: 0 },
   iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '44px', height: '44px', minWidth: '44px', fontSize: '18px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  sendBtn: { background: '#00ff00', color: 'black', border: 'none', padding: '0 15px', height: '44px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '2px', flexShrink: 0 }
+  sendBtn: { background: '#00ff00', color: 'black', border: 'none', padding: '0 15px', height: '44px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '2px', flexShrink: 0 },
+  contactRow: { display:'flex', alignItems:'center', gap:'10px', padding:'15px', borderBottom:'1px solid #1f1f1f', cursor:'pointer', background:'rgba(0,255,0,0.02)' }
 };
 
 export default App;
