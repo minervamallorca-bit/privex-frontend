@@ -46,7 +46,7 @@ const playSound = (type) => {
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION: UMBRA V19 (THE CLEANER)
+// 2. MAIN APPLICATION: UMBRA V19.1 (LITE STREAM)
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -86,7 +86,18 @@ function App() {
     ]
   };
 
-  // --- CLEANUP TIMER ---
+  // V19.1: OPTIMIZED MEDIA CONSTRAINTS (Low Latency)
+  const mediaConstraints = {
+    audio: true,
+    video: {
+      width: { ideal: 640 },   // Low Res for Speed
+      height: { ideal: 480 },
+      facingMode: "user",
+      frameRate: { max: 20 }   // Cap FPS to save bandwidth
+    }
+  };
+
+  // --- CLEANUP ---
   useEffect(() => {
     const interval = setInterval(() => {
       setTime(Date.now()); 
@@ -99,7 +110,7 @@ function App() {
     return () => clearInterval(interval);
   }, [messages, user]);
 
-  // --- MESSAGES LISTENER ---
+  // --- MESSAGES ---
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "messages"), orderBy("createdAt", "asc"), limit(100));
@@ -119,7 +130,7 @@ function App() {
     return () => unsubscribe();
   }, [user, messages.length]);
 
-  // --- TYPING LISTENER ---
+  // --- TYPING ---
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "active_typing"));
@@ -135,7 +146,7 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // --- GHOST WIRE SIGNALING ---
+  // --- SIGNALING ---
   useEffect(() => {
     if (!user) return;
     const callDocRef = doc(db, "calls", user.channel);
@@ -155,22 +166,35 @@ function App() {
     return () => unsubscribe();
   }, [user, callActive]);
 
-  // --- CALL FUNCTIONS ---
+  // --- CALL FUNCTIONS (UPDATED V19.1) ---
   const startGhostWire = async () => {
     setCallActive(true);
     setCallStatus('DIALING...');
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    
+    // Use Optimized Constraints
+    const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
     setLocalStream(stream);
     setRemoteStream(new MediaStream());
+
     pc.current = new RTCPeerConnection(servers);
     stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
+
     pc.current.ontrack = (event) => {
         event.streams[0].getTracks().forEach(track => setRemoteStream(prev => { prev.addTrack(track); return prev; }));
         if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
+
     const offerDescription = await pc.current.createOffer();
     await pc.current.setLocalDescription(offerDescription);
-    const callOffer = { type: 'offer', offer: { sdp: offerDescription.sdp, type: offerDescription.type }, sender: user.name, channel: user.channel, timestamp: Date.now() };
+
+    const callOffer = {
+        type: 'offer',
+        offer: { sdp: offerDescription.sdp, type: offerDescription.type },
+        sender: user.name,
+        channel: user.channel,
+        timestamp: Date.now()
+    };
+    
     await setDoc(doc(db, "calls", user.channel), callOffer);
     setCallStatus('WAITING...');
   };
@@ -178,18 +202,33 @@ function App() {
   const answerGhostWire = async () => {
     setCallActive(true);
     setCallStatus('CONNECTING...');
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+
+    // Use Optimized Constraints
+    const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
     setLocalStream(stream);
     setRemoteStream(new MediaStream());
+
     pc.current = new RTCPeerConnection(servers);
     stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
-    pc.current.ontrack = (event) => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0]; };
+
+    pc.current.ontrack = (event) => {
+        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+    };
+
     const callDoc = await getDoc(doc(db, "calls", user.channel));
     const callData = callDoc.data();
+
     await pc.current.setRemoteDescription(new RTCSessionDescription(callData.offer));
+
     const answerDescription = await pc.current.createAnswer();
     await pc.current.setLocalDescription(answerDescription);
-    await updateDoc(doc(db, "calls", user.channel), { type: 'answer', answer: { sdp: answerDescription.sdp, type: answerDescription.type }, receiver: callData.sender, sender: user.name });
+
+    await updateDoc(doc(db, "calls", user.channel), {
+        type: 'answer',
+        answer: { sdp: answerDescription.sdp, type: answerDescription.type },
+        receiver: callData.sender,
+        sender: user.name
+    });
     setCallStatus('LINKED');
   };
 
@@ -253,20 +292,13 @@ function App() {
     }
   };
 
-  // --- V19: WIPE CHANNEL ---
   const wipeChannel = async () => {
     if (!window.confirm("CONFIRM: DELETE ALL HISTORY?")) return;
     playSound('purge');
-    
-    // Query all messages in this channel
     const q = query(collection(db, "messages"), where("channel", "==", user.channel));
     const snapshot = await getDocs(q);
-    
     const batch = writeBatch(db);
-    snapshot.docs.forEach((doc) => {
-      batch.delete(doc.ref);
-    });
-    
+    snapshot.docs.forEach((doc) => { batch.delete(doc.ref); });
     await batch.commit();
     setStatus("HISTORY PURGED");
     setTimeout(() => setStatus("SECURE"), 3000);
@@ -284,7 +316,7 @@ function App() {
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// CLEANER PROTOCOL V19.0</div>
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// LITE STREAM V19.1</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -310,12 +342,8 @@ function App() {
         </div>
         
         <div style={{display:'flex', gap:'5px', alignItems:'center'}}>
-           {/* WIPE BUTTON (V19) */}
            <button onClick={wipeChannel} style={{...styles.iconBtn, color: '#FF0000', borderColor: '#333'}}>🗑️</button>
-
-           <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>
-             🔥
-           </button>
+           <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>🔥</button>
            {!callActive && <button onClick={startGhostWire} style={{...styles.iconBtn, color: '#00ff00'}}>🎥</button>}
            {callStatus === 'INCOMING...' && <button onClick={answerGhostWire} style={{...styles.iconBtn, background: '#00ff00', color: 'black', animation: 'blink 0.5s infinite'}}>📞</button>}
            {callActive && <button onClick={endGhostWire} style={{...styles.iconBtn, color: 'red', borderColor: 'red'}}>X</button>}
