@@ -46,7 +46,7 @@ const playSound = (type) => {
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION: UMBRA V18.1 (UI FIX)
+// 2. MAIN APPLICATION: UMBRA V18.2 (BUTTON FIX)
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -55,7 +55,7 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]); 
-  const [status, setStatus] = useState('SECURE'); // Shortened default text
+  const [status, setStatus] = useState('SECURE'); 
   
   const [burnMode, setBurnMode] = useState(false); 
   const [time, setTime] = useState(Date.now()); 
@@ -159,33 +159,18 @@ function App() {
   const startGhostWire = async () => {
     setCallActive(true);
     setCallStatus('DIALING...');
-    
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     setLocalStream(stream);
     setRemoteStream(new MediaStream());
-
     pc.current = new RTCPeerConnection(servers);
     stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
-
     pc.current.ontrack = (event) => {
-        event.streams[0].getTracks().forEach(track => setRemoteStream(prev => {
-            prev.addTrack(track);
-            return prev; 
-        }));
+        event.streams[0].getTracks().forEach(track => setRemoteStream(prev => { prev.addTrack(track); return prev; }));
         if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
-
     const offerDescription = await pc.current.createOffer();
     await pc.current.setLocalDescription(offerDescription);
-
-    const callOffer = {
-        type: 'offer',
-        offer: { sdp: offerDescription.sdp, type: offerDescription.type },
-        sender: user.name,
-        channel: user.channel,
-        timestamp: Date.now()
-    };
-    
+    const callOffer = { type: 'offer', offer: { sdp: offerDescription.sdp, type: offerDescription.type }, sender: user.name, channel: user.channel, timestamp: Date.now() };
     await setDoc(doc(db, "calls", user.channel), callOffer);
     setCallStatus('WAITING...');
   };
@@ -193,32 +178,18 @@ function App() {
   const answerGhostWire = async () => {
     setCallActive(true);
     setCallStatus('CONNECTING...');
-
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
     setLocalStream(stream);
     setRemoteStream(new MediaStream());
-
     pc.current = new RTCPeerConnection(servers);
     stream.getTracks().forEach(track => pc.current.addTrack(track, stream));
-
-    pc.current.ontrack = (event) => {
-        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
-    };
-
+    pc.current.ontrack = (event) => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0]; };
     const callDoc = await getDoc(doc(db, "calls", user.channel));
     const callData = callDoc.data();
-
     await pc.current.setRemoteDescription(new RTCSessionDescription(callData.offer));
-
     const answerDescription = await pc.current.createAnswer();
     await pc.current.setLocalDescription(answerDescription);
-
-    await updateDoc(doc(db, "calls", user.channel), {
-        type: 'answer',
-        answer: { sdp: answerDescription.sdp, type: answerDescription.type },
-        receiver: callData.sender,
-        sender: user.name
-    });
+    await updateDoc(doc(db, "calls", user.channel), { type: 'answer', answer: { sdp: answerDescription.sdp, type: answerDescription.type }, receiver: callData.sender, sender: user.name });
     setCallStatus('LINKED');
   };
 
@@ -294,7 +265,7 @@ function App() {
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// GHOST WIRE PROTOCOL V18.1</div>
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// ALIGNMENT FIX V18.2</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -310,7 +281,7 @@ function App() {
 
   return (
     <div style={styles.container}>
-      {/* HEADER: Adjusted for Safe Area & Flex */}
+      {/* HEADER */}
       <div style={styles.header}>
         <div style={{flex: 1, minWidth: 0, paddingRight: '10px'}}>
           <span style={{fontWeight:'bold', display:'block', letterSpacing:'1px', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
@@ -320,23 +291,12 @@ function App() {
         </div>
         
         <div style={{display:'flex', gap:'5px', alignItems:'center'}}>
-           {/* BURN BUTTON */}
            <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>
              🔥
            </button>
-           
-           {/* CALL CONTROLS */}
-           {!callActive && (
-              <button onClick={startGhostWire} style={{...styles.iconBtn, color: '#00ff00'}}>🎥</button>
-           )}
-           {callStatus === 'INCOMING...' && (
-              <button onClick={answerGhostWire} style={{...styles.iconBtn, background: '#00ff00', color: 'black', animation: 'blink 0.5s infinite'}}>📞</button>
-           )}
-           {callActive && (
-              <button onClick={endGhostWire} style={{...styles.iconBtn, color: 'red', borderColor: 'red'}}>X</button>
-           )}
-
-           {/* LOGOUT */}
+           {!callActive && <button onClick={startGhostWire} style={{...styles.iconBtn, color: '#00ff00'}}>🎥</button>}
+           {callStatus === 'INCOMING...' && <button onClick={answerGhostWire} style={{...styles.iconBtn, background: '#00ff00', color: 'black', animation: 'blink 0.5s infinite'}}>📞</button>}
+           {callActive && <button onClick={endGhostWire} style={{...styles.iconBtn, color: 'red', borderColor: 'red'}}>X</button>}
            <button onClick={() => setUser(null)} style={{...styles.iconBtn, color:'#555', borderColor:'#333'}}>⏻</button>
         </div>
       </div>
@@ -379,32 +339,21 @@ function App() {
         <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
         <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#00ff00'}}>{isRecording ? '⏹' : '🎤'}</button>
         <input value={input} onChange={handleInputChange} placeholder="MESSAGE..." style={styles.inputBar} onKeyPress={(e) => e.key === 'Enter' && handleSend()} />
-        <button onClick={handleSend} style={styles.btn}>SEND</button>
+        {/* FIXED: SEND BUTTON NOW HAS SAME HEIGHT AND ALIGNMENT */}
+        <button onClick={handleSend} style={styles.sendBtn}>SEND</button>
       </div>
     </div>
   );
 }
 
-// --- CALIBRATED STYLES FOR MOBILE ---
+// --- FIXED STYLES ---
 const styles = {
   container: { height: '100dvh', width: '100vw', background: '#080808', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
   box: { margin: 'auto', border: '1px solid #00ff00', padding: '30px', width:'85%', maxWidth:'400px', textAlign: 'center', background: '#000' },
   input: { display: 'block', width: '100%', boxSizing:'border-box', background: '#0a0a0a', border: '1px solid #333', color: '#00ff00', padding: '15px', fontSize: '16px', outline: 'none', fontFamily:'monospace', marginBottom:'15px' },
   btn: { background: '#00ff00', color: 'black', border: 'none', padding: '15px', width: '100%', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' },
   
-  // Header: Flex with gap to prevent overlap
-  header: { 
-    paddingTop: 'calc(10px + env(safe-area-inset-top))', 
-    paddingBottom: '10px', 
-    paddingLeft: '15px', 
-    paddingRight: '15px', 
-    background: '#0a0a0a', 
-    borderBottom: '1px solid #1f1f1f', 
-    display: 'flex', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    flexShrink: 0 
-  },
+  header: { paddingTop: 'calc(10px + env(safe-area-inset-top))', paddingBottom: '10px', paddingLeft: '15px', paddingRight: '15px', background: '#0a0a0a', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 },
   
   chatArea: { flex: 1, overflowY: 'auto', padding: '15px', backgroundImage: 'linear-gradient(rgba(0,0,0,0.95),rgba(0,0,0,0.95)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")', WebkitOverflowScrolling: 'touch' },
   myMsg: { background: 'rgba(0, 50, 0, 0.3)', border: '1px solid #004400', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#e0ffe0', wordWrap: 'break-word' },
@@ -423,16 +372,28 @@ const styles = {
     flexShrink: 0 
   },
   
-  inputBar: { flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '12px', fontFamily: 'monospace', outline: 'none', borderRadius: '2px', minWidth: 0 },
+  // Height Locked to 44px
+  inputBar: { 
+    flex: 1, 
+    background: '#000', 
+    border: '1px solid #333', 
+    color: '#fff', 
+    padding: '0 12px', // Horizontal padding only
+    height: '44px', // FIXED HEIGHT
+    lineHeight: '44px', // Vertically center text
+    fontFamily: 'monospace', 
+    outline: 'none', 
+    borderRadius: '2px', 
+    minWidth: 0 
+  },
   
-  // Icon Button: Fixed Width/Height to prevent shrinking
   iconBtn: { 
     background: 'black', 
     border: '1px solid #333', 
     borderRadius: '2px', 
-    width: '40px', // Fixed size
-    height: '40px', // Fixed size
-    minWidth: '40px', // Prevent shrinking
+    width: '44px', // MATCH HEIGHT
+    height: '44px', // MATCH HEIGHT
+    minWidth: '44px', 
     fontSize: '18px', 
     cursor: 'pointer', 
     color: '#00ff00', 
@@ -440,6 +401,20 @@ const styles = {
     alignItems: 'center', 
     justifyContent: 'center', 
     flexShrink: 0 
+  },
+
+  // New Specific Style for Send Button
+  sendBtn: {
+    background: '#00ff00', 
+    color: 'black', 
+    border: 'none', 
+    padding: '0 15px', 
+    height: '44px', // MATCH HEIGHT
+    fontWeight: 'bold', 
+    cursor: 'pointer', 
+    fontSize: '14px', 
+    borderRadius: '2px',
+    flexShrink: 0
   }
 };
 
