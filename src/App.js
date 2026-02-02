@@ -110,7 +110,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V40.2 (BOLD COPYRIGHT)
+// 2. MAIN APP: UMBRA V40.3 (OPTIMIZED COPYRIGHT)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -635,7 +635,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V40.2</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V40.3</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -647,8 +647,8 @@ function App() {
               <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
               <div style={{marginTop:'15px', cursor:'pointer', fontSize:'10px', color:'#555', textDecoration:'underline'}} onClick={() => setView('RECOVERY')}>LOST ACCESS?</div>
               
-              {/* V40.2: BILLBOARD COPYRIGHT */}
-              <div style={{marginTop:'30px', fontSize:'24px', fontWeight:'bold', color:'#ffffff', textShadow:'0 0 5px #000', borderTop:'2px solid #333', paddingTop:'15px'}}>
+              {/* V40.3: OPTIMIZED COPYRIGHT (12px, White) */}
+              <div style={{marginTop:'30px', fontSize:'12px', fontWeight:'bold', color:'#ffffff', textShadow:'0 0 5px #000', borderTop:'2px solid #333', paddingTop:'15px'}}>
                   {COPYRIGHT_TEXT}
               </div>
            </div>
@@ -707,8 +707,8 @@ function App() {
               ))}
           </div>
           
-          {/* V40.2: BILLBOARD COPYRIGHT (SIDEBAR) */}
-          <div style={{padding:'15px', fontSize:'20px', fontWeight:'bold', color:'#ffffff', textShadow:'0 0 3px #000', textAlign:'center', borderTop:'2px solid #1f1f1f', background:'#000'}}>
+          {/* V40.3: OPTIMIZED COPYRIGHT (SIDEBAR) (10px, White) */}
+          <div style={{padding:'15px', fontSize:'10px', fontWeight:'bold', color:'#ffffff', textShadow:'0 0 3px #000', textAlign:'center', borderTop:'2px solid #1f1f1f', background:'#000'}}>
               {COPYRIGHT_TEXT}
           </div>
       </div>
