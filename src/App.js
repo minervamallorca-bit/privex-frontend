@@ -59,7 +59,7 @@ const DecryptedText = ({ text }) => {
 };
 
 // ---------------------------------------------------------
-// 3. MAIN APPLICATION: UMBRA V14.1
+// 3. MAIN APPLICATION: UMBRA V15 (ENGLISH FORCE)
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -231,20 +231,9 @@ function App() {
     setUser({ name: loginName, id: Date.now(), channel: safeChannel });
   };
 
-  // V14.1: JOIN CALL (Internal)
   const joinCallInternal = (e) => {
     e.preventDefault();
-    setVideoMode(true); // Open the viewscreen
-  };
-
-  // V14.1: START CALL (Sends link)
-  const startCall = (videoMode) => {
-    // Generate secure hash for the room
-    const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
-    // We send a dummy link, but the client knows how to handle it
-    const callUrl = `https://meet.jit.si/UMBRA_SECURE_${secureHash}`;
-    sendMessage(callUrl, videoMode ? 'video_call' : 'voice_call');
-    setVideoMode(true); // Auto open for sender
+    setVideoMode(true); 
   };
 
   if (!user) {
@@ -252,7 +241,7 @@ function App() {
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// UPLINK PROTOCOL V14.1</div>
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// UPLINK PROTOCOL V15.0</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -267,8 +256,11 @@ function App() {
     );
   }
 
+  // V15: FORCE ENGLISH IN URL
   const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
   const callUrl = `https://meet.jit.si/UMBRA_SECURE_${secureHash}`;
+  // We append ?lang=en to force Jitsi interface to English
+  const callSrc = `${callUrl}?lang=en#config.startWithAudioMuted=true&config.startWithVideoMuted=true`;
 
   return (
     <div style={styles.container}>
@@ -292,10 +284,15 @@ function App() {
         </div>
       </div>
 
-      {/* VIEWSCREEN */}
+      {/* VIEWSCREEN (ENGLISH FORCED) */}
       {videoMode && (
         <div style={{height: '40vh', borderBottom: '1px solid #00ff00', background: '#000'}}>
-            <iframe src={callUrl + "#config.startWithAudioMuted=true&config.startWithVideoMuted=true"} style={{width:'100%', height:'100%', border:'none'}} allow="camera; microphone; fullscreen; display-capture" title="Viewscreen" />
+            <iframe 
+                src={callSrc} // Using V15 english src
+                style={{width:'100%', height:'100%', border:'none'}} 
+                allow="camera; microphone; fullscreen; display-capture" 
+                title="Viewscreen" 
+            />
         </div>
       )}
 
@@ -318,7 +315,6 @@ function App() {
                     {msg.type === 'image' && <img src={msg.text} alt="content" style={{maxWidth:'100%', borderRadius:'5px'}} />}
                     {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
                     
-                    {/* V14.1: SMART LINK (No Redirect) */}
                     {(msg.type === 'video_call' || msg.type === 'voice_call') && (
                       <button onClick={joinCallInternal} style={styles.link}>
                         {msg.type === 'video_call' ? '🎥 OPEN SECURE FEED' : '📞 OPEN SECURE FEED'}
