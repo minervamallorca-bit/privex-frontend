@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { db, storage } from './firebase'; // NOTICE: We use ./firebase because we are in src/
+import { db, storage } from './firebase'; 
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import './App.css';
 
-// --- COMPONENT: DECRYPTED TEXT ---
+// ---------------------------------------------------------
+// 1. DECRYPTION COMPONENT (The Matrix Effect)
+// ---------------------------------------------------------
 const DecryptedText = ({ text }) => {
   const [display, setDisplay] = useState('');
   const chars = '!@#$%^&*()_+-=[]{}|;:,.<>?0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -23,55 +25,37 @@ const DecryptedText = ({ text }) => {
   return <span>{display}</span>;
 };
 
-// --- COMPONENT: LOGIN ---
-function Login({ onLogin }) {
-  const [name, setName] = useState('');
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (name.trim()) onLogin({ name: name, id: Date.now() });
-  };
-  return (
-    <div style={styles.loginContainer}>
-      <div style={styles.loginBox}>
-        <h1 style={styles.loginTitle}>PRIVEX V4.0 (MONOLITH)</h1>
-        <form onSubmit={handleSubmit}>
-          <input 
-            type="text" 
-            placeholder="ENTER AGENT ID" 
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            style={styles.loginInput}
-          />
-          <button type="submit" style={styles.loginButton}>INITIALIZE</button>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// --- COMPONENT: CHAT ROOM ---
-function ChatRoom({ user, logout }) {
+// ---------------------------------------------------------
+// 2. MAIN APPLICATION (Contains Login + Chat)
+// ---------------------------------------------------------
+function App() {
+  const [user, setUser] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState(false); // New uploading state
+  
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
+  // --- DATABASE LISTENER ---
   useEffect(() => {
+    if (!user) return;
     const q = query(collection(db, "messages"), orderBy("createdAt"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
+  // --- AUTO SCROLL ---
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // --- SEND FUNCTIONS ---
   const handleSend = async () => {
     if (!input.trim()) return;
     await sendMessage(input, 'text');
@@ -80,10 +64,14 @@ function ChatRoom({ user, logout }) {
 
   const sendMessage = async (content, type) => {
     await addDoc(collection(db, "messages"), {
-      text: content, type: type, sender: user.name, createdAt: serverTimestamp()
+      text: content, 
+      type: type, 
+      sender: user.name, 
+      createdAt: serverTimestamp() 
     });
   };
 
+  // --- FILE UPLOAD ---
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -92,14 +80,20 @@ function ChatRoom({ user, logout }) {
       const fileRef = ref(storage, `uploads/${Date.now()}_${file.name}`);
       await uploadBytes(fileRef, file);
       const url = await getDownloadURL(fileRef);
+      
       let type = 'document';
       if (file.type.startsWith('image/')) type = 'image';
       if (file.type.startsWith('video/')) type = 'video';
+      
       await sendMessage(url, type);
-    } catch (error) { console.error("Upload failed", error); }
+    } catch (err) {
+      console.error(err);
+      alert("Upload Failed");
+    }
     setUploading(false);
   };
 
+  // --- VOICE RECORDING ---
   const toggleRecording = async () => {
     if (isRecording) {
       mediaRecorderRef.current.stop();
@@ -108,7 +102,7 @@ function ChatRoom({ user, logout }) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
-      mediaRecorderRef.current.ondataavailable = (e) => { audioChunksRef.current.push(e.data); };
+      mediaRecorderRef.current.ondataavailable = (e) => audioChunksRef.current.push(e.data);
       mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
         setUploading(true);
@@ -129,82 +123,99 @@ function ChatRoom({ user, logout }) {
     sendMessage(callUrl, videoMode ? 'video_call' : 'voice_call');
   };
 
-  return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <div style={styles.status}><span style={styles.dot}></span><span>SECURE_LINK</span></div>
-        <div style={styles.controls}>
-          <button onClick={() => startCall(false)} style={styles.iconBtn}>📞</button>
-          <button onClick={() => startCall(true)} style={styles.iconBtn}>🎥</button>
-          <button onClick={logout} style={styles.logoutBtn}>EXIT</button>
+  // --- RENDER: LOGIN SCREEN ---
+  if (!user) {
+    return (
+      <div style={styles.container}>
+        <div style={styles.box}>
+          <h1 style={{color: '#00ff00', letterSpacing: '5px'}}>PRIVEX V5.0 (MONOLITH)</h1>
+          <form onSubmit={(e) => {
+            e.preventDefault();
+            const name = e.target.elements.name.value;
+            if (name.trim()) setUser({ name, id: Date.now() });
+          }}>
+            <input name="name" type="text" placeholder="IDENTITY REQUIRED" style={styles.input} />
+            <button type="submit" style={styles.btn}>ACCESS</button>
+          </form>
         </div>
       </div>
-      <div style={styles.chatWindow}>
-        {messages.map((msg) => (
-          <div key={msg.id} style={{...styles.row, justifyContent: msg.sender === user.name ? 'flex-end' : 'flex-start'}}>
-            <div style={msg.sender === user.name ? styles.myMsg : styles.otherMsg}>
-              <div style={styles.sender}>{msg.sender.toUpperCase()}</div>
-              {msg.type === 'text' && <DecryptedText text={msg.text} />}
-              {msg.type === 'image' && <img src={msg.text} alt="img" style={styles.media} />}
-              {msg.type === 'audio' && <audio src={msg.text} controls style={styles.media} />}
-              {(msg.type === 'video_call' || msg.type === 'voice_call') && (
-                 <a href={msg.text} target="_blank" rel="noreferrer" style={styles.callLink}>
-                   {msg.type === 'video_call' ? '🎥 JOIN VIDEO' : '📞 JOIN VOICE'}
-                 </a>
-              )}
-            </div>
+    );
+  }
+
+  // --- RENDER: CHAT SCREEN ---
+  return (
+    <div style={styles.container}>
+      {/* HEADER */}
+      <div style={styles.header}>
+        <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
+          <div style={{width:'10px', height:'10px', background:'#00ff00', borderRadius:'50%'}}></div>
+          <span>SECURE_CHANNEL</span>
+        </div>
+        <div>
+          <button onClick={() => startCall(false)} style={styles.iconBtn}>📞</button>
+          <button onClick={() => startCall(true)} style={styles.iconBtn}>🎥</button>
+          <button onClick={() => setUser(null)} style={{...styles.iconBtn, color:'red'}}>❌</button>
+        </div>
+      </div>
+
+      {/* MESSAGES */}
+      <div style={styles.chatArea}>
+        {messages.map(msg => (
+          <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === user.name ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
+             <div style={msg.sender === user.name ? styles.myMsg : styles.otherMsg}>
+                <div style={{fontSize:'10px', marginBottom:'5px', opacity: 0.7}}>{msg.sender}</div>
+                
+                {msg.type === 'text' && <DecryptedText text={msg.text} />}
+                
+                {msg.type === 'image' && <img src={msg.text} alt="content" style={{maxWidth:'100%', borderRadius:'5px'}} />}
+                
+                {msg.type === 'audio' && <audio src={msg.text} controls style={{maxWidth:'200px'}} />}
+                
+                {(msg.type === 'video_call' || msg.type === 'voice_call') && (
+                  <a href={msg.text} target="_blank" rel="noreferrer" style={styles.link}>
+                    {msg.type === 'video_call' ? 'JOIN VIDEO' : 'JOIN VOICE'}
+                  </a>
+                )}
+             </div>
           </div>
         ))}
-        {uploading && <div style={{textAlign:'center'}}>ENCRYPTING...</div>}
+        {uploading && <div style={{textAlign:'center', color:'#00ff00'}}>ENCRYPTING...</div>}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* INPUT */}
       <div style={styles.inputArea}>
-        <input type="file" ref={fileInputRef} style={{display:'none'}} onChange={handleFileUpload} />
+        <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
         <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
         <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00'}}>
-            {isRecording ? '⏹' : '🎤'}
+          {isRecording ? '⏹' : '🎤'}
         </button>
-        <input style={styles.input} value={input} onChange={(e) => setInput(e.target.value)} placeholder="TRANSMIT..." />
-        <button onClick={handleSend} style={styles.sendBtn}>📤</button>
+        <input 
+          value={input} 
+          onChange={(e) => setInput(e.target.value)} 
+          placeholder="TRANSMIT..." 
+          style={styles.inputBar}
+        />
+        <button onClick={handleSend} style={styles.btn}>SEND</button>
       </div>
     </div>
   );
 }
 
-// --- MAIN APP ---
-function App() {
-  const [user, setUser] = useState(null);
-  return (
-    <div className="App">
-      {!user ? <Login onLogin={setUser} /> : <ChatRoom user={user} logout={() => setUser(null)} />}
-    </div>
-  );
-}
-
-// --- STYLES ---
+// --- CSS STYLES (Internal) ---
 const styles = {
-  container: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#000', color: '#00ff00', fontFamily: 'monospace' },
-  loginContainer: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#000', color: '#00ff00', fontFamily: 'monospace' },
-  loginBox: { padding: '40px', border: '1px solid #00ff00', borderRadius: '10px', textAlign: 'center' },
-  loginTitle: { fontSize: '24px', marginBottom: '20px' },
-  loginInput: { width: '100%', padding: '15px', background: 'transparent', border: '1px solid #00ff00', color: '#00ff00', marginBottom: '20px', textAlign: 'center' },
-  loginButton: { width: '100%', padding: '15px', background: '#00ff00', border: 'none', fontWeight: 'bold' },
-  header: { padding: '15px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  status: { display: 'flex', alignItems: 'center', gap: '10px' },
-  controls: { display: 'flex', gap: '10px' },
-  dot: { width: '8px', height: '8px', background: '#00ff00', borderRadius: '50%' },
-  chatWindow: { flex: 1, padding: '20px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' },
-  row: { display: 'flex', width: '100%' },
-  myMsg: { background: '#002200', border: '1px solid #00ff00', padding: '10px', borderRadius: '15px', maxWidth: '80%' },
-  otherMsg: { background: '#222', border: '1px solid #444', padding: '10px', borderRadius: '15px', maxWidth: '80%' },
-  sender: { fontSize: '9px', marginBottom: '5px' },
-  media: { maxWidth: '100%', marginTop: '5px' },
-  callLink: { display: 'block', padding: '10px', color: '#00ff00', border: '1px dashed', textAlign: 'center' },
-  inputArea: { padding: '15px', borderTop: '1px solid #333', display: 'flex', gap: '10px' },
-  input: { flex: 1, padding: '15px', background: '#000', border: '1px solid #333', color: '#fff' },
+  container: { height: '100vh', background: '#000', color: '#00ff00', fontFamily: 'monospace', display: 'flex', flexDirection: 'column' },
+  box: { margin: 'auto', border: '1px solid #00ff00', padding: '40px', textAlign: 'center' },
+  input: { display: 'block', margin: '20px auto', background: 'black', border: '1px solid #00ff00', color: '#00ff00', padding: '10px', textAlign: 'center' },
+  btn: { background: '#00ff00', color: 'black', border: 'none', padding: '10px 20px', fontWeight: 'bold', cursor: 'pointer' },
+  header: { padding: '15px', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between' },
+  chatArea: { flex: 1, overflowY: 'auto', padding: '20px' },
+  myMsg: { background: '#002200', border: '1px solid #00ff00', padding: '10px', borderRadius: '10px', maxWidth: '80%' },
+  otherMsg: { background: '#111', border: '1px solid #444', padding: '10px', borderRadius: '10px', maxWidth: '80%' },
+  inputArea: { padding: '15px', borderTop: '1px solid #333', display: 'flex', gap: '10px', alignItems: 'center' },
+  inputBar: { flex: 1, background: 'transparent', border: '1px solid #333', color: '#fff', padding: '10px' },
   iconBtn: { background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: '#00ff00' },
-  sendBtn: { background: '#00ff00', border: 'none', padding: '0 20px', fontWeight: 'bold' },
-  logoutBtn: { background: 'transparent', border: '1px solid red', color: 'red', fontSize: '10px' }
+  link: { color: '#00ff00', border: '1px dashed #00ff00', padding: '5px', textDecoration: 'none', display: 'block', textAlign: 'center' }
 };
 
 export default App;
