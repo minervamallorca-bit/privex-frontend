@@ -110,7 +110,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V42 (FRAMELESS ICONS)
+// 2. MAIN APP: UMBRA V43 (ICE BREAKER)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -514,42 +514,101 @@ function App() {
     await batch.commit();
   };
 
+  // V43: ICE CANDIDATE LOGIC
   const startCall = async (mode) => {
     resumeAudio();
     setCallActive(true); setCallStatus('DIALING...'); setIsVideoCall(mode === 'video');
-    const constraints = { audio: true, video: mode === 'video' ? { width: 640 } : false };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const chatID = getChatID(myProfile.phone, activeFriend.phone);
+    const callDocRef = doc(db, "calls", chatID);
+    const offerCandidatesRef = collection(callDocRef, "offerCandidates");
+    const answerCandidatesRef = collection(callDocRef, "answerCandidates");
+
+    pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
+    
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' ? { width: 640 } : false });
     localStream.current = stream;
     if (localVideoRef.current && mode === 'video') localVideoRef.current.srcObject = stream;
-    pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
+    
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
-    pc.current.ontrack = e => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+
+    pc.current.onicecandidate = (event) => {
+      if (event.candidate) addDoc(offerCandidatesRef, event.candidate.toJSON());
+    };
+
     const offer = await pc.current.createOffer();
     await pc.current.setLocalDescription(offer);
-    const chatID = getChatID(myProfile.phone, activeFriend.phone);
-    await setDoc(doc(db, "calls", chatID), { type: 'offer', sdp: JSON.stringify(offer), sender: myProfile.phone, mode: mode });
+
+    await setDoc(callDocRef, { type: 'offer', sdp: JSON.stringify(offer), sender: myProfile.phone, mode: mode });
+
+    pc.current.ontrack = (event) => {
+       if (remoteVideoRef.current) {
+           remoteVideoRef.current.srcObject = event.streams[0];
+       }
+    };
+
+    // Listen for Answer
+    const unsubCall = onSnapshot(callDocRef, (snap) => {
+       const data = snap.data();
+       if (!pc.current.currentRemoteDescription && data?.sdp && data.type === 'answer') {
+           const answer = JSON.parse(data.sdp);
+           pc.current.setRemoteDescription(new RTCSessionDescription(answer));
+       }
+    });
+
+    // Listen for Candidates
+    const unsubIce = onSnapshot(answerCandidatesRef, (snap) => {
+       snap.docChanges().forEach((change) => {
+           if (change.type === 'added') {
+               const candidate = new RTCIceCandidate(change.doc.data());
+               pc.current.addIceCandidate(candidate);
+           }
+       });
+    });
   };
 
   const answerCall = async () => {
     resumeAudio();
     setCallActive(true);
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
-    const callDoc = await getDoc(doc(db, "calls", chatID));
-    const data = callDoc.data();
-    const offer = JSON.parse(data.sdp);
-    const incomingMode = data.mode || 'video';
-    setIsVideoCall(incomingMode === 'video');
-    const constraints = { audio: true, video: incomingMode === 'video' ? { width: 640 } : false };
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    localStream.current = stream;
-    if (localVideoRef.current && incomingMode === 'video') localVideoRef.current.srcObject = stream;
+    const callDocRef = doc(db, "calls", chatID);
+    const answerCandidatesRef = collection(callDocRef, "answerCandidates");
+    const offerCandidatesRef = collection(callDocRef, "offerCandidates");
+    const callSnap = await getDoc(callDocRef);
+    const callData = callSnap.data();
+
+    setIsVideoCall(callData.mode === 'video');
+
     pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callData.mode === 'video' ? { width: 640 } : false });
+    localStream.current = stream;
+    if (localVideoRef.current && callData.mode === 'video') localVideoRef.current.srcObject = stream;
+
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
-    pc.current.ontrack = e => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
-    await pc.current.setRemoteDescription(offer);
+
+    pc.current.onicecandidate = (event) => {
+      if (event.candidate) addDoc(answerCandidatesRef, event.candidate.toJSON());
+    };
+
+    pc.current.ontrack = (event) => {
+       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
+    };
+
+    await pc.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(callData.sdp)));
+
     const answer = await pc.current.createAnswer();
     await pc.current.setLocalDescription(answer);
-    await updateDoc(doc(db, "calls", chatID), { type: 'answer', sdp: JSON.stringify(answer) });
+
+    await updateDoc(callDocRef, { type: 'answer', sdp: JSON.stringify(answer) });
+
+    onSnapshot(offerCandidatesRef, (snap) => {
+       snap.docChanges().forEach((change) => {
+           if (change.type === 'added') {
+               const candidate = new RTCIceCandidate(change.doc.data());
+               pc.current.addIceCandidate(candidate);
+           }
+       });
+    });
   };
 
   const endCall = async () => {
@@ -569,7 +628,7 @@ function App() {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
               playSound('call_audio'); 
           }
-          if (data && data.type === 'answer' && callActive && pc.current) await pc.current.setRemoteDescription(JSON.parse(data.sdp));
+          // Note: Remote description setting moved to answerCall/startCall logic to avoid race conditions
           if (!data && callActive) { setCallActive(false); if(localStream.current) localStream.current.getTracks().forEach(t => t.stop()); }
       });
       return () => unsub();
@@ -635,7 +694,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V42</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V43</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -647,7 +706,7 @@ function App() {
               <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
               <div style={{marginTop:'15px', cursor:'pointer', fontSize:'10px', color:'#555', textDecoration:'underline'}} onClick={() => setView('RECOVERY')}>LOST ACCESS?</div>
               
-              {/* V41: INTEGRATED SIGNATURE (10.5px, Matrix Green, Bold, Mono) */}
+              {/* V41: INTEGRATED SIGNATURE */}
               <div style={{marginTop:'30px', fontSize:'10.5px', fontWeight:'bold', color:'#00ff00', fontFamily:'monospace', borderTop:'1px solid #333', paddingTop:'15px'}}>
                   {COPYRIGHT_TEXT}
               </div>
