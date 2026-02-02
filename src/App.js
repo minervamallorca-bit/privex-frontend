@@ -11,24 +11,31 @@ const playSound = (type) => {
   const oscillator = audioCtx.createOscillator();
   const gainNode = audioCtx.createGain();
   
-  if (type === 'alert') {
+  if (type === 'purge') {
+    // SYSTEM FAILURE SOUND (Low, descending tone)
+    oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.exponentialRampToValueAtTime(10, audioCtx.currentTime + 0.5);
+    gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+  } else if (type === 'alert') {
     oscillator.frequency.setValueAtTime(200, audioCtx.currentTime);
     oscillator.type = 'sawtooth';
     oscillator.frequency.exponentialRampToValueAtTime(50, audioCtx.currentTime + 0.3);
+    gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
   } else {
-    // Normal ping
+    // Ping
     oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
     oscillator.type = 'sine';
     oscillator.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.1);
+    gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
   }
 
-  gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
-  gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+  gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.1));
   
   oscillator.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   oscillator.start();
-  oscillator.stop(audioCtx.currentTime + 0.3);
+  oscillator.stop(audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.3));
 };
 
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
@@ -55,7 +62,7 @@ const DecryptedText = ({ text }) => {
 };
 
 // ---------------------------------------------------------
-// 3. MAIN APPLICATION: UMBRA V12
+// 3. MAIN APPLICATION: UMBRA V14
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -66,14 +73,15 @@ function App() {
   const [typingUsers, setTypingUsers] = useState([]); 
   const [status, setStatus] = useState('UMBRA NET: SECURE');
   
-  // V12 Features
-  const [burnMode, setBurnMode] = useState(false); // Toggle
-  const [time, setTime] = useState(Date.now()); // For countdowns
+  // V14 Features
+  const [burnMode, setBurnMode] = useState(false); 
+  const [videoMode, setVideoMode] = useState(false); // V14: Viewscreen Toggle
+  const [time, setTime] = useState(Date.now()); 
 
   // Login Inputs
   const [loginName, setLoginName] = useState('');
   const [loginChannel, setLoginChannel] = useState('MAIN');
-  const [loginKey, setLoginKey] = useState(''); // Password
+  const [loginKey, setLoginKey] = useState(''); 
   const [loginError, setLoginError] = useState('');
 
   const messagesEndRef = useRef(null);
@@ -82,38 +90,30 @@ function App() {
   const audioChunksRef = useRef([]);
   const lastTypingTime = useRef(0);
 
-  // --- V12: CLEANUP TIMER (Checks for dead messages) ---
+  // --- CLEANUP TIMER ---
   useEffect(() => {
     const interval = setInterval(() => {
-      setTime(Date.now()); // Update UI tickers
-      
-      // Check if I am the sender of any expired message, if so, delete it from DB
+      setTime(Date.now()); 
       messages.forEach(async (msg) => {
         if (msg.burnAt && msg.burnAt < Date.now() && msg.sender === user?.name) {
-           try {
-             await deleteDoc(doc(db, "messages", msg.id));
-           } catch(e) { console.log("Cleanup error", e); }
+           try { await deleteDoc(doc(db, "messages", msg.id)); } catch(e) {}
         }
       });
     }, 1000);
     return () => clearInterval(interval);
   }, [messages, user]);
 
-  // --- DATABASE LISTENER (MESSAGES) ---
+  // --- DATABASE LISTENER ---
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "messages"), orderBy("createdAt", "asc"), limit(100));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      
-      // Filter by Channel AND filter out expired messages visually immediately
       const filteredMessages = allMessages.filter(msg => {
         const msgChannel = msg.channel || 'MAIN';
-        // If expired, hide immediately (server delete happens in background)
         if (msg.burnAt && msg.burnAt < Date.now()) return false; 
         return msgChannel === user.channel;
       });
-      
       if (filteredMessages.length > messages.length && messages.length > 0) {
         const lastMsg = filteredMessages[filteredMessages.length - 1];
         if (lastMsg.sender !== user.name) playSound('ping');
@@ -123,7 +123,7 @@ function App() {
     return () => unsubscribe();
   }, [user, messages.length]);
 
-  // --- DATABASE LISTENER (TYPING) ---
+  // --- TYPING LISTENER ---
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "active_typing"));
@@ -132,10 +132,8 @@ function App() {
         const activeTypers = [];
         snapshot.forEach(doc => {
             const data = doc.data();
-            if (data.channel === user.channel) {
-                if (data.timestamp && (now - data.timestamp) < 4000) {
-                    activeTypers.push(data.user);
-                }
+            if (data.channel === user.channel && (now - data.timestamp) < 4000) {
+                activeTypers.push(data.user);
             }
         });
         setTypingUsers(activeTypers);
@@ -146,7 +144,7 @@ function App() {
   // --- AUTO SCROLL ---
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, typingUsers]);
+  }, [messages, typingUsers, videoMode]);
 
   // --- HANDLERS ---
   const handleInputChange = async (e) => {
@@ -156,9 +154,7 @@ function App() {
     if (now - lastTypingTime.current > 1000) { 
         lastTypingTime.current = now;
         const docId = `${user.channel}_${user.name}`;
-        try {
-            await setDoc(doc(db, "active_typing", docId), { user: user.name, channel: user.channel, timestamp: now });
-        } catch (err) {}
+        try { await setDoc(doc(db, "active_typing", docId), { user: user.name, channel: user.channel, timestamp: now }); } catch (err) {}
     }
   };
 
@@ -170,25 +166,11 @@ function App() {
 
   const sendMessage = async (content, type) => {
     if (!user) return;
-    
-    // V12: BURN LOGIC
-    let msgData = {
-      text: content, 
-      type: type, 
-      sender: user.name,
-      channel: user.channel, 
-      createdAt: serverTimestamp() 
-    };
-
-    if (burnMode) {
-        msgData.burnAt = Date.now() + 60000; // Expires in 60s
-        msgData.isBurn = true;
-    }
-
+    let msgData = { text: content, type: type, sender: user.name, channel: user.channel, createdAt: serverTimestamp() };
+    if (burnMode) { msgData.burnAt = Date.now() + 60000; msgData.isBurn = true; }
     await addDoc(collection(db, "messages"), msgData);
   };
 
-  // --- FILE UPLOAD ---
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -205,7 +187,6 @@ function App() {
     setUploading(false);
   };
 
-  // --- VOICE ---
   const toggleRecording = async () => {
     if (isRecording) {
       mediaRecorderRef.current.stop();
@@ -229,28 +210,25 @@ function App() {
     }
   };
 
-  const startCall = (videoMode) => {
-    const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
-    const callUrl = `https://meet.jit.si/UMBRA_SECURE_${secureHash}_${Math.floor(Math.random() * 1000)}`;
-    sendMessage(callUrl, videoMode ? 'video_call' : 'voice_call');
+  // --- V14: PANIC BUTTON (THE PURGE) ---
+  const executePurge = () => {
+    playSound('purge');
+    setVideoMode(false);
+    setUser(null);
   };
 
-  // --- V12: SECURE LOGIN LOGIC ---
+  // --- LOGIN LOGIC ---
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
-
     if (!loginName.trim()) return;
-    
     const safeChannel = loginChannel.trim().toUpperCase().replace(/\s/g, '_') || 'MAIN';
     const safeKey = loginKey.trim();
 
-    // 1. Check if channel exists in secure_registry
     const docRef = doc(db, "secure_channels", safeChannel);
     const docSnap = await getDoc(docRef);
 
     if (docSnap.exists()) {
-        // Channel Exists: CHECK KEY
         const data = docSnap.data();
         if (data.key && data.key !== safeKey) {
             setLoginError('ACCESS DENIED: INVALID KEY');
@@ -258,12 +236,8 @@ function App() {
             return;
         }
     } else {
-        // Channel New: CLAIM IT (If key provided)
-        if (safeKey) {
-            await setDoc(docRef, { key: safeKey, creator: loginName });
-        }
+        if (safeKey) await setDoc(docRef, { key: safeKey, creator: loginName });
     }
-
     setUser({ name: loginName, id: Date.now(), channel: safeChannel });
   };
 
@@ -272,8 +246,7 @@ function App() {
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// SHADOW PROTOCOL V12.0</div>
-          
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// WAR ROOM PROTOCOL V14.0</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -288,6 +261,10 @@ function App() {
     );
   }
 
+  // --- V14: GENERATE SECURE VIDEO URL ---
+  const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
+  const callUrl = `https://meet.jit.si/UMBRA_SECURE_${secureHash}`;
+
   return (
     <div style={styles.container}>
       {/* HEADER */}
@@ -297,7 +274,6 @@ function App() {
           <span style={{fontSize:'10px', color: status.includes('ERROR') ? 'red' : '#00ff00'}}>{status}</span>
         </div>
         <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
-           {/* V12: BURN TOGGLE */}
            <button 
              onClick={() => setBurnMode(!burnMode)} 
              style={{
@@ -308,53 +284,56 @@ function App() {
                 borderColor: 'orange'
              }}
            >
-             {burnMode ? '🔥 BURN: ON' : '🔥 BURN: OFF'}
+             {burnMode ? '🔥' : '🔥'}
            </button>
            
-           <button onClick={() => startCall(false)} style={styles.iconBtn}>📞</button>
-           <button onClick={() => startCall(true)} style={styles.iconBtn}>🎥</button>
-           <button onClick={() => setUser(null)} style={{...styles.iconBtn, color:'red', borderColor:'red'}}>X</button>
+           {/* V14: VIEWSCREEN TOGGLE */}
+           <button onClick={() => setVideoMode(!videoMode)} style={{...styles.iconBtn, background: videoMode ? '#003300' : 'black'}}>
+             {videoMode ? '🔼' : '🎥'}
+           </button>
+           
+           {/* V14: PURGE BUTTON */}
+           <button onClick={executePurge} style={{...styles.iconBtn, color:'red', borderColor:'red', fontSize:'18px'}} title="EMERGENCY EJECT">
+             ⚠️
+           </button>
         </div>
       </div>
+
+      {/* V14: VIEWSCREEN (IFRAME) */}
+      {videoMode && (
+        <div style={{height: '40vh', borderBottom: '1px solid #00ff00', background: '#000'}}>
+            <iframe 
+                src={callUrl + "#config.startWithAudioMuted=true&config.startWithVideoMuted=true"} 
+                style={{width:'100%', height:'100%', border:'none'}} 
+                allow="camera; microphone; fullscreen; display-capture" 
+                title="Viewscreen"
+            />
+        </div>
+      )}
 
       {/* CHAT AREA */}
       <div style={styles.chatArea}>
         {messages.map(msg => {
-            // V12: Calculate remaining time for burn messages
             let timeLeft = null;
-            if (msg.burnAt) {
-                timeLeft = Math.max(0, Math.ceil((msg.burnAt - time) / 1000));
-            }
+            if (msg.burnAt) timeLeft = Math.max(0, Math.ceil((msg.burnAt - time) / 1000));
 
             return (
               <div key={msg.id} style={{display:'flex', flexDirection: 'column', alignItems: msg.sender === user.name ? 'flex-end' : 'flex-start', marginBottom:'15px'}}>
-                 
                  <div style={{display:'flex', alignItems:'center', gap:'8px', marginBottom:'5px', flexDirection: msg.sender === user.name ? 'row-reverse' : 'row'}}>
                     <img src={getAvatar(msg.sender)} alt="avatar" style={{width:'25px', height:'25px', borderRadius:'50%', border:'1px solid #00ff00'}} />
                     <div style={{fontSize:'10px', color: '#00ff00', opacity:0.8}}>
                         {msg.sender.toUpperCase()}
-                        {/* V12: Show timer next to name */}
                         {timeLeft !== null && <span style={{color:'orange', marginLeft:'5px'}}>🔥 {timeLeft}s</span>}
                     </div>
                  </div>
-
-                 <div style={{
-                     ...(msg.sender === user.name ? styles.myMsg : styles.otherMsg),
-                     borderColor: timeLeft !== null ? 'orange' : (msg.sender === user.name ? '#004400' : '#333') // Orange border for burn msgs
-                 }}>
+                 <div style={{...(msg.sender === user.name ? styles.myMsg : styles.otherMsg), borderColor: timeLeft !== null ? 'orange' : (msg.sender === user.name ? '#004400' : '#333')}}>
                     {msg.type === 'text' && <DecryptedText text={msg.text} />}
                     {msg.type === 'image' && <img src={msg.text} alt="content" style={{maxWidth:'100%', borderRadius:'5px'}} />}
                     {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
-                    {(msg.type === 'video_call' || msg.type === 'voice_call') && (
-                      <a href={msg.text} target="_blank" rel="noreferrer" style={styles.link}>
-                        {msg.type === 'video_call' ? '🎥 SECURE LINK' : '📞 SECURE LINK'}
-                      </a>
-                    )}
                  </div>
               </div>
             );
         })}
-        
         {typingUsers.length > 0 && (
             <div style={{color: '#00ff00', fontSize: '10px', padding: '10px', animation: 'blink 1.5s infinite'}}>
                 {typingUsers.map(u => u.toUpperCase()).join(', ')} IS TYPING...
@@ -394,8 +373,7 @@ const styles = {
   otherMsg: { background: '#111', border: '1px solid #333', padding: '12px', borderRadius: '2px', maxWidth: '80%', color: '#ccc' },
   inputArea: { padding: '15px', background: '#0a0a0a', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '10px', alignItems: 'center' },
   inputBar: { flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '12px', fontFamily: 'monospace', outline: 'none', borderRadius: '2px' },
-  iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '45px', height: '45px', fontSize: '20px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  link: { color: '#00ff00', border: '1px dashed #00ff00', padding: '10px', textDecoration: 'none', display: 'block', textAlign: 'center', marginTop: '5px', background: 'rgba(0,255,0,0.05)' }
+  iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '45px', height: '45px', fontSize: '20px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center' }
 };
 
 export default App;
