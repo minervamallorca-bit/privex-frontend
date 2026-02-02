@@ -7,7 +7,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { 
   FaPowerOff, FaCog, FaUserMinus, FaBroom, FaFire, FaPhoneAlt, FaVideo, 
   FaPhoneSlash, FaPaperclip, FaMicrophone, FaStop, FaPaperPlane, 
-  FaShareAlt, FaDownload, FaArrowLeft, FaChevronRight 
+  FaShareAlt, FaDownload, FaArrowLeft, FaChevronRight,
+  FaHeart, FaHeartBroken // V48: Heart Icons
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
@@ -17,7 +18,7 @@ const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png";
 const APP_TITLE = "UMBRA SECURE";
 const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; 
 
-// GLOBAL AUDIO CONTEXT
+// AUDIO CONTEXT
 let audioCtx = null;
 
 const getAudioContext = () => {
@@ -27,43 +28,17 @@ const getAudioContext = () => {
   return audioCtx;
 };
 
-// V47: KEEP ALIVE (SILENT PULSE)
+// BACKGROUND KEEPER
 const startKeepAlive = () => {
     const ctx = getAudioContext();
     if (ctx.state === 'suspended') ctx.resume();
-    
-    // Create a silent oscillator that never stops to keep the tab awake
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.frequency.value = 1; // Inaudible
-    gain.gain.value = 0.0001; // Silent
+    osc.frequency.value = 1; 
+    gain.gain.value = 0.0001; 
     osc.start();
-    console.log("V47: BACKGROUND KEEP-ALIVE ACTIVE");
-};
-
-// V47: SYSTEM NOTIFICATION TRIGGER
-const triggerSystemNotification = (title, body) => {
-    if (Notification.permission === 'granted') {
-        try {
-            // Mobile Vibration Pattern
-            if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 1000]);
-            
-            const n = new Notification(title, {
-                body: body,
-                icon: APP_LOGO,
-                vibrate: [200, 100, 200],
-                tag: 'umbra-call',
-                requireInteraction: true // Keeps notification on screen
-            });
-            
-            n.onclick = function() {
-                window.focus();
-                n.close();
-            };
-        } catch(e) { console.log("Notification error:", e); }
-    }
 };
 
 const resumeAudio = () => {
@@ -71,6 +46,30 @@ const resumeAudio = () => {
   if (ctx.state === 'suspended') {
     ctx.resume().catch(e => console.log(e));
   }
+};
+
+// V48: ENHANCED NOTIFICATIONS
+const triggerSystemNotification = (title, body) => {
+    if (Notification.permission === 'granted') {
+        try {
+            if (navigator.vibrate) navigator.vibrate([1000, 500, 1000, 500, 1000]);
+            
+            // Service Worker Registration for Mobile Wake (If available)
+            if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({ type: 'NOTIFY', title, body });
+            } else {
+                // Fallback Standard Notification
+                const n = new Notification(title, {
+                    body: body,
+                    icon: APP_LOGO,
+                    vibrate: [200, 100, 200],
+                    requireInteraction: true,
+                    silent: false
+                });
+                n.onclick = () => { window.focus(); n.close(); };
+            }
+        } catch(e) { console.log("Notify Error", e); }
+    }
 };
 
 const playSound = (type) => {
@@ -149,7 +148,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V47 (BACKGROUND VIGILANCE)
+// 2. MAIN APP: UMBRA V48 (HEARTS & OFFLINE PAGING)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -211,16 +210,14 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // V47: WAKE UP SEQUENCE ON INTERACTION
   useEffect(() => {
       const wakeUp = () => {
           resumeAudio();
-          startKeepAlive(); // START THE SILENT LOOP
+          startKeepAlive();
       };
       window.addEventListener('click', wakeUp, { once: true });
       window.addEventListener('touchstart', wakeUp, { once: true });
       
-      // Request Notification Permission
       if (Notification.permission !== 'granted' && view === 'APP') {
           Notification.requestPermission();
       }
@@ -258,7 +255,6 @@ function App() {
   // HEARTBEAT
   useEffect(() => {
       if (!myProfile) return;
-      
       const sendHeartbeat = async () => {
           try {
               await updateDoc(doc(db, "users", myProfile.phone), { 
@@ -266,7 +262,6 @@ function App() {
               });
           } catch(e) {}
       };
-
       sendHeartbeat(); 
       const beat = setInterval(sendHeartbeat, 30000); 
       return () => clearInterval(beat);
@@ -274,7 +269,6 @@ function App() {
 
   useEffect(() => {
       if (!contacts || contacts.length === 0) return;
-      
       const unsubs = [];
       contacts.forEach(c => {
           const unsub = onSnapshot(doc(db, "users", c.phone), (doc) => {
@@ -290,17 +284,16 @@ function App() {
           });
           unsubs.push(unsub);
       });
-
       return () => unsubs.forEach(u => u());
   }, [contacts]);
 
-  const getStatusText = (phone) => {
+  // V48: STATUS CHECK (RETURNS STRING 'ONLINE' OR 'OFFLINE')
+  const getStatus = (phone) => {
       const lastActive = friendStatuses[phone];
-      if (!lastActive) return "NOT CONNECTED";
+      if (!lastActive) return 'OFFLINE';
       const now = Date.now();
       const last = lastActive.seconds * 1000;
-      const diff = now - last;
-      return diff < 70000 ? "CONNECTED" : "NOT CONNECTED";
+      return (now - last < 70000) ? 'ONLINE' : 'OFFLINE';
   };
 
   const handleLogin = async (e) => {
@@ -487,9 +480,8 @@ function App() {
                if (change.type === "added") {
                    const msg = change.doc.data();
                    if (msg.sender !== myProfile.phone) {
-                       // V47: TRIGGER SYSTEM NOTIFICATION
                        playSound('message'); 
-                       triggerSystemNotification(`UMBRA: ${msg.senderName}`, "New Encrypted Message Received");
+                       triggerSystemNotification(`UMBRA: ${msg.senderName}`, "New Encrypted Message");
                    }
                }
            });
@@ -519,14 +511,11 @@ function App() {
     let msgData = { text: input, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, type: 'text', createdAt: serverTimestamp() };
     if (burnMode) { msgData.isBurn = true; }
     await addDoc(collection(db, "messages"), msgData);
-    
-    // HEARTBEAT ON SEND
     await updateDoc(doc(db, "users", myProfile.phone), { lastActive: serverTimestamp() });
-
     try {
         const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
         await updateDoc(friendRef, { unread: increment(1) });
-    } catch(e) { console.log("Friend link broken"); }
+    } catch(e) {}
     setInput('');
   };
 
@@ -634,9 +623,7 @@ function App() {
     };
 
     pc.current.ontrack = (event) => {
-       if (remoteVideoRef.current) {
-           remoteVideoRef.current.srcObject = event.streams[0];
-       }
+       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = event.streams[0];
     };
 
     const offer = await pc.current.createOffer();
@@ -728,7 +715,6 @@ function App() {
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
               
-              // V47: TRIGGER SYSTEM NOTIFICATION FOR CALL
               triggerSystemNotification(`UMBRA: ${data.mode === 'audio' ? 'VOICE' : 'VIDEO'} CALL`, "Incoming Secure Connection...");
               
               if (!ringInterval.current) {
@@ -811,7 +797,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V47</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V48</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -864,21 +850,16 @@ function App() {
           )}
           <div style={{flex:1, overflowY:'auto'}}>
               {contacts.map(c => {
-                  const status = getStatusText(c.phone);
+                  const status = getStatus(c.phone);
                   return (
                     <div key={c.phone} onClick={() => selectFriend(c)} style={{...styles.contactRow, background: activeFriend?.phone === c.phone ? '#111' : 'transparent'}}>
                         <img src={getAvatar(c)} style={styles.avatar} alt="av"/>
                         <div style={{flex:1, minWidth:0}}>
                             <div style={styles.contactName}>{c.name}</div>
                             <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
-                            <div style={{
-                                fontSize:'8px', 
-                                fontWeight:'bold', 
-                                marginTop:'3px',
-                                color: status === 'CONNECTED' ? '#00ff00' : 'red',
-                                opacity: status === 'CONNECTED' ? 1 : 0.5
-                            }}>
-                                {status}
+                            {/* V48: HEARTS */}
+                            <div style={{marginTop:'3px'}}>
+                                {status === 'ONLINE' ? <FaHeart color="#00ff00" size={10}/> : <FaHeartBroken color="red" size={10}/>}
                             </div>
                         </div>
                         
