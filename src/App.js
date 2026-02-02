@@ -11,12 +11,12 @@ import {
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
-// 1. ASSETS & AUDIO ENGINE (V38: GLOBAL RESUME)
+// 1. ASSETS & AUDIO ENGINE (V39: WATCHDOG)
 // ---------------------------------------------------------
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
 
-// SINGLETON AUDIO CONTEXT
+// AUDIO CONTEXT SINGLETON
 let audioCtx = null;
 
 const getAudioContext = () => {
@@ -26,19 +26,17 @@ const getAudioContext = () => {
   return audioCtx;
 };
 
-// GLOBAL UNLOCKER
+// FORCE WAKE UP
 const resumeAudio = () => {
   const ctx = getAudioContext();
   if (ctx.state === 'suspended') {
-    ctx.resume().then(() => console.log("AUDIO SYSTEM: ONLINE"));
+    ctx.resume().catch(e => console.log(e));
   }
 };
 
-// V38: LOUD & RELIABLE SYNTH
 const playSound = (type) => {
   const ctx = getAudioContext();
-  
-  // Safety check: if suspended, try to resume, but might fail if no user gesture active
+  // Attempt resume immediately before playing
   if (ctx.state === 'suspended') ctx.resume();
 
   const osc = ctx.createOscillator();
@@ -50,19 +48,19 @@ const playSound = (type) => {
   const now = ctx.currentTime;
 
   if (type === 'message') {
-    // 3 LOUD SQUARE BEEPS (2 Seconds)
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(880, now); // A5
+    // 3 DISTINCT LOUD BEEPS (2 Seconds Total)
+    osc.type = 'square'; 
+    osc.frequency.setValueAtTime(880, now); // A5 (High)
 
-    // Beep 1
+    // Beep 1 (0.0 - 0.1s)
     gain.gain.setValueAtTime(0.3, now);
     gain.gain.setValueAtTime(0, now + 0.1);
 
-    // Beep 2
+    // Beep 2 (0.4 - 0.5s)
     gain.gain.setValueAtTime(0.3, now + 0.4);
     gain.gain.setValueAtTime(0, now + 0.5);
 
-    // Beep 3
+    // Beep 3 (0.8 - 0.9s)
     gain.gain.setValueAtTime(0.3, now + 0.8);
     gain.gain.setValueAtTime(0, now + 0.9);
 
@@ -127,7 +125,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V38 (AUDIO NET)
+// 2. MAIN APP: UMBRA V39 (WATCHDOG)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -177,7 +175,9 @@ function App() {
   const avatarInputRef = useRef(null);
   const wallpaperInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  
+  // V39: WATCHDOG REF (PREVENT SOUND ON INITIAL LOAD)
+  const isInitialLoad = useRef(true);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
@@ -186,13 +186,16 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // V38: ACTIVATE AUDIO ON ANY CLICK
+  // V39: AGGRESSIVE AUDIO RESUME ON INTERACTION
   useEffect(() => {
-      window.addEventListener('click', resumeAudio);
-      window.addEventListener('keydown', resumeAudio);
+      const wakeUp = () => resumeAudio();
+      window.addEventListener('click', wakeUp);
+      window.addEventListener('touchstart', wakeUp);
+      window.addEventListener('keydown', wakeUp);
       return () => {
-          window.removeEventListener('click', resumeAudio);
-          window.removeEventListener('keydown', resumeAudio);
+          window.removeEventListener('click', wakeUp);
+          window.removeEventListener('touchstart', wakeUp);
+          window.removeEventListener('keydown', wakeUp);
       };
   }, []);
 
@@ -228,7 +231,7 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
-    resumeAudio(); // V38 Force Resume
+    resumeAudio(); 
     const cleanPhone = inputPhone.replace(/\D/g, ''); 
     if (cleanPhone.length < 5 || !inputName.trim() || !inputPassword.trim()) {
         setLoginError('INVALID INPUTS'); return;
@@ -386,7 +389,9 @@ function App() {
   const getChatID = (phoneA, phoneB) => parseInt(phoneA) < parseInt(phoneB) ? `${phoneA}_${phoneB}` : `${phoneB}_${phoneA}`;
   
   const selectFriend = async (friend) => { 
-      setActiveFriend(friend); 
+      setActiveFriend(friend);
+      // V39: RESET WATCHDOG ON CHANGE
+      isInitialLoad.current = true; 
       if (isMobile) setMobileView('CHAT'); 
       if (friend.unread > 0) {
           await updateDoc(doc(db, "users", myProfile.phone, "friends", friend.phone), { unread: 0 });
@@ -395,22 +400,32 @@ function App() {
   
   const goBack = () => { setMobileView('LIST'); if (!isMobile) setActiveFriend(null); };
 
+  // V39: WATCHDOG MESSAGE LISTENER
   useEffect(() => {
     if (!activeFriend || !myProfile) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     const q = query(collection(db, "messages"), where("channel", "==", chatID), limit(100));
+    
     const unsub = onSnapshot(q, (snap) => {
-       snap.docChanges().forEach((change) => {
-           if (change.type === "added") {
-               const msg = change.doc.data();
-               // V38 CHECK: ONLY PLAY IF NOT MY MSG AND NEW (<5s)
-               if (msg.sender !== myProfile.phone && Date.now() - (msg.createdAt?.seconds * 1000) < 5000) {
-                   playSound('message'); 
+       // DETECT NEW MESSAGES WITHOUT TIME DEPENDENCY
+       if (!isInitialLoad.current) {
+           snap.docChanges().forEach((change) => {
+               if (change.type === "added") {
+                   const msg = change.doc.data();
+                   if (msg.sender !== myProfile.phone) {
+                       console.log("V39 WATCHDOG: NEW MESSAGE DETECTED - PLAYING SOUND");
+                       playSound('message'); 
+                   }
                }
-           }
-       });
+           });
+       } else {
+           // First load done, disarm watchdog
+           isInitialLoad.current = false;
+       }
 
        let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+       
+       // Read Receipt Logic
        msgs.forEach(async (msg) => {
            if (msg.sender !== myProfile.phone && !msg.readAt) {
                const updates = { readAt: Date.now() };
@@ -418,6 +433,7 @@ function App() {
                try { await updateDoc(doc(db, "messages", msg.id), updates); } catch(e){}
            }
        });
+
        msgs.sort((a, b) => (a.createdAt?.seconds || Date.now()) - (b.createdAt?.seconds || Date.now()));
        setMessages(msgs);
        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
@@ -426,6 +442,7 @@ function App() {
   }, [activeFriend, myProfile]);
 
   const sendMessage = async () => {
+    resumeAudio(); // Ensure audio is ready
     if (!input.trim() || !activeFriend) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     let msgData = { text: input, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, type: 'text', createdAt: serverTimestamp() };
@@ -462,6 +479,7 @@ function App() {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     } else {
+      resumeAudio();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
@@ -523,6 +541,7 @@ function App() {
   };
 
   const startCall = async (mode) => {
+    resumeAudio();
     setCallActive(true); setCallStatus('DIALING...'); setIsVideoCall(mode === 'video');
     const constraints = { audio: true, video: mode === 'video' ? { width: 640 } : false };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -538,6 +557,7 @@ function App() {
   };
 
   const answerCall = async () => {
+    resumeAudio();
     setCallActive(true);
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     const callDoc = await getDoc(doc(db, "calls", chatID));
@@ -641,7 +661,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V38</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V39</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -771,7 +791,7 @@ function App() {
                     <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
                     <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}><FaPaperclip /></button>
                     <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#333'}}>{isRecording ? <FaStop /> : <FaMicrophone />}</button>
-                    <input value={input} onChange={e => setInput(e.target.value)} placeholder="MESSAGE..." style={styles.inputBar} onKeyPress={e => e.key === 'Enter' && sendMessage()}/>
+                    <input onFocus={resumeAudio} value={input} onChange={e => setInput(e.target.value)} placeholder="MESSAGE..." style={styles.inputBar} onKeyPress={e => e.key === 'Enter' && sendMessage()}/>
                     <button onClick={sendMessage} style={styles.sendBtn}><FaPaperPlane /></button>
                 </div>
               </div>
