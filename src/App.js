@@ -11,10 +11,11 @@ import {
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
-// 1. ASSETS & AUDIO ENGINE (V39: WATCHDOG)
+// 1. ASSETS & UTILS (V40: COPYRIGHT ADDED)
 // ---------------------------------------------------------
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
+const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; // V40
 
 // AUDIO CONTEXT SINGLETON
 let audioCtx = null;
@@ -26,7 +27,6 @@ const getAudioContext = () => {
   return audioCtx;
 };
 
-// FORCE WAKE UP
 const resumeAudio = () => {
   const ctx = getAudioContext();
   if (ctx.state === 'suspended') {
@@ -36,7 +36,6 @@ const resumeAudio = () => {
 
 const playSound = (type) => {
   const ctx = getAudioContext();
-  // Attempt resume immediately before playing
   if (ctx.state === 'suspended') ctx.resume();
 
   const osc = ctx.createOscillator();
@@ -48,42 +47,29 @@ const playSound = (type) => {
   const now = ctx.currentTime;
 
   if (type === 'message') {
-    // 3 DISTINCT LOUD BEEPS (2 Seconds Total)
     osc.type = 'square'; 
-    osc.frequency.setValueAtTime(880, now); // A5 (High)
-
-    // Beep 1 (0.0 - 0.1s)
+    osc.frequency.setValueAtTime(880, now); 
     gain.gain.setValueAtTime(0.3, now);
     gain.gain.setValueAtTime(0, now + 0.1);
-
-    // Beep 2 (0.4 - 0.5s)
     gain.gain.setValueAtTime(0.3, now + 0.4);
     gain.gain.setValueAtTime(0, now + 0.5);
-
-    // Beep 3 (0.8 - 0.9s)
     gain.gain.setValueAtTime(0.3, now + 0.8);
     gain.gain.setValueAtTime(0, now + 0.9);
-
     osc.start(now);
     osc.stop(now + 2.0);
   } 
   else if (type === 'call_audio') {
-    // DIGITAL RING
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(600, now);
     osc.frequency.linearRampToValueAtTime(800, now + 0.1);
-    
     gain.gain.setValueAtTime(0.2, now);
     gain.gain.linearRampToValueAtTime(0, now + 0.5);
-    
     gain.gain.setValueAtTime(0.2, now + 0.6);
     gain.gain.linearRampToValueAtTime(0, now + 1.1);
-
     osc.start(now);
     osc.stop(now + 1.2);
   } 
   else if (type === 'purge') {
-    // ZAP
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(200, now);
     osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
@@ -100,7 +86,6 @@ const getAvatar = (user) => {
     return `https://api.dicebear.com/7.x/bottts/svg?seed=${user.name || 'User'}&backgroundColor=transparent`;
 };
 
-// CSS
 const GlitchStyles = () => (
   <style>
     {`
@@ -125,7 +110,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V39 (WATCHDOG)
+// 2. MAIN APP: UMBRA V40 (COPYRIGHT)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -175,8 +160,8 @@ function App() {
   const avatarInputRef = useRef(null);
   const wallpaperInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
-  
-  // V39: WATCHDOG REF (PREVENT SOUND ON INITIAL LOAD)
+  const audioChunksRef = useRef([]);
+
   const isInitialLoad = useRef(true);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -186,7 +171,6 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // V39: AGGRESSIVE AUDIO RESUME ON INTERACTION
   useEffect(() => {
       const wakeUp = () => resumeAudio();
       window.addEventListener('click', wakeUp);
@@ -390,7 +374,6 @@ function App() {
   
   const selectFriend = async (friend) => { 
       setActiveFriend(friend);
-      // V39: RESET WATCHDOG ON CHANGE
       isInitialLoad.current = true; 
       if (isMobile) setMobileView('CHAT'); 
       if (friend.unread > 0) {
@@ -400,32 +383,25 @@ function App() {
   
   const goBack = () => { setMobileView('LIST'); if (!isMobile) setActiveFriend(null); };
 
-  // V39: WATCHDOG MESSAGE LISTENER
   useEffect(() => {
     if (!activeFriend || !myProfile) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     const q = query(collection(db, "messages"), where("channel", "==", chatID), limit(100));
-    
     const unsub = onSnapshot(q, (snap) => {
-       // DETECT NEW MESSAGES WITHOUT TIME DEPENDENCY
        if (!isInitialLoad.current) {
            snap.docChanges().forEach((change) => {
                if (change.type === "added") {
                    const msg = change.doc.data();
                    if (msg.sender !== myProfile.phone) {
-                       console.log("V39 WATCHDOG: NEW MESSAGE DETECTED - PLAYING SOUND");
                        playSound('message'); 
                    }
                }
            });
        } else {
-           // First load done, disarm watchdog
            isInitialLoad.current = false;
        }
 
        let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-       
-       // Read Receipt Logic
        msgs.forEach(async (msg) => {
            if (msg.sender !== myProfile.phone && !msg.readAt) {
                const updates = { readAt: Date.now() };
@@ -433,7 +409,6 @@ function App() {
                try { await updateDoc(doc(db, "messages", msg.id), updates); } catch(e){}
            }
        });
-
        msgs.sort((a, b) => (a.createdAt?.seconds || Date.now()) - (b.createdAt?.seconds || Date.now()));
        setMessages(msgs);
        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
@@ -442,7 +417,7 @@ function App() {
   }, [activeFriend, myProfile]);
 
   const sendMessage = async () => {
-    resumeAudio(); // Ensure audio is ready
+    resumeAudio(); 
     if (!input.trim() || !activeFriend) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     let msgData = { text: input, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, type: 'text', createdAt: serverTimestamp() };
@@ -479,7 +454,6 @@ function App() {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
     } else {
-      resumeAudio();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaRecorderRef.current = new MediaRecorder(stream);
       audioChunksRef.current = [];
@@ -661,7 +635,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V39</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V40</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -672,6 +646,11 @@ function App() {
               {loginError && <div style={{color:'red', fontSize:'12px', marginBottom:'10px'}}>{loginError}</div>}
               <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
               <div style={{marginTop:'15px', cursor:'pointer', fontSize:'10px', color:'#555', textDecoration:'underline'}} onClick={() => setView('RECOVERY')}>LOST ACCESS?</div>
+              
+              {/* V40: COPYRIGHT FOOTER (LOGIN) */}
+              <div style={{marginTop:'30px', fontSize:'9px', color:'#444', borderTop:'1px solid #222', paddingTop:'10px'}}>
+                  {COPYRIGHT_TEXT}
+              </div>
            </div>
         </div>
      );
@@ -716,6 +695,7 @@ function App() {
                           <div style={styles.contactName}>{c.name}</div>
                           <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
                       </div>
+                      
                       {c.unread > 0 ? (
                           <div style={{background:'red', color:'white', borderRadius:'50%', width:'20px', height:'20px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'bold', flexShrink:0}}>
                               {c.unread}
@@ -725,6 +705,11 @@ function App() {
                       )}
                   </div>
               ))}
+          </div>
+          
+          {/* V40: COPYRIGHT FOOTER (SIDEBAR) */}
+          <div style={{padding:'10px', fontSize:'8px', color:'#333', textAlign:'center', borderTop:'1px solid #1f1f1f'}}>
+              {COPYRIGHT_TEXT}
           </div>
       </div>
 
