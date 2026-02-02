@@ -11,11 +11,98 @@ import {
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
-// 1. ASSETS & UTILS
+// 1. ASSETS & AUDIO ENGINE
 // ---------------------------------------------------------
-// *** PASTE YOUR LOGO URL BELOW ***
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
+
+// GLOBAL AUDIO CONTEXT (Lazy Load)
+let audioCtx = null;
+
+const initAudio = () => {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  // BROWSER UNLOCK: Resume if suspended
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  return audioCtx;
+};
+
+// V37: LOUD AUDIO PATTERNS
+const playSound = (type) => {
+  const ctx = initAudio();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+
+  const now = ctx.currentTime;
+
+  if (type === 'message') {
+    // 3 LOUD SQUARE BEEPS (2 Seconds)
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(880, now); // High Pitch (A5)
+
+    // Beep 1
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.setValueAtTime(0, now + 0.1);
+
+    // Beep 2
+    gain.gain.setValueAtTime(0.3, now + 0.4);
+    gain.gain.setValueAtTime(0, now + 0.5);
+
+    // Beep 3
+    gain.gain.setValueAtTime(0.3, now + 0.8);
+    gain.gain.setValueAtTime(0, now + 0.9);
+
+    osc.start(now);
+    osc.stop(now + 2.0);
+  } 
+  else if (type === 'call_audio') {
+    // LOUD PHONE RING
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(600, now);
+    osc.frequency.linearRampToValueAtTime(800, now + 0.1);
+    
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.linearRampToValueAtTime(0, now + 0.5);
+    
+    // Double Ring
+    gain.gain.setValueAtTime(0.2, now + 0.6);
+    gain.gain.linearRampToValueAtTime(0, now + 1.1);
+
+    osc.start(now);
+    osc.stop(now + 1.2);
+  } 
+  else if (type === 'purge') {
+    // DELETION ZAP
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(200, now);
+    osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+    gain.gain.setValueAtTime(0.3, now);
+    gain.gain.linearRampToValueAtTime(0, now + 0.3);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  }
+  else {
+    // DEFAULT UNLOCK SOUND
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(440, now);
+    gain.gain.setValueAtTime(0.01, now); // Very quiet unlock
+    gain.gain.linearRampToValueAtTime(0, now + 0.1);
+    osc.start(now);
+    osc.stop(now + 0.1);
+  }
+};
+
+const getAvatar = (user) => {
+    if (!user) return `https://api.dicebear.com/7.x/bottts/svg?seed=Unknown&backgroundColor=transparent`;
+    if (user.avatar) return user.avatar;
+    return `https://api.dicebear.com/7.x/bottts/svg?seed=${user.name || 'User'}&backgroundColor=transparent`;
+};
 
 // V35: MATRIX GLITCH CSS
 const GlitchStyles = () => (
@@ -41,77 +128,8 @@ const GlitchStyles = () => (
   </style>
 );
 
-// V36: ADVANCED AUDIO SYNTHESIZER
-const playSound = (type) => {
-  const ctx = new (window.AudioContext || window.webkitAudioContext)();
-  const osc = ctx.createOscillator();
-  const gain = ctx.createGain();
-  osc.connect(gain);
-  gain.connect(ctx.destination);
-
-  const now = ctx.currentTime;
-
-  if (type === 'message') {
-    // HIGH-TECH CHIRP (For Text)
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(2000, now);
-    osc.frequency.exponentialRampToValueAtTime(500, now + 0.15);
-    gain.gain.setValueAtTime(0.1, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-    osc.start(now);
-    osc.stop(now + 0.15);
-  } 
-  else if (type === 'call_audio') {
-    // DIGITAL RING (Double Pulse)
-    osc.type = 'square';
-    osc.frequency.setValueAtTime(800, now);
-    // Pulse 1
-    gain.gain.setValueAtTime(0.1, now);
-    gain.gain.linearRampToValueAtTime(0, now + 0.2);
-    // Pulse 2
-    gain.gain.setValueAtTime(0.1, now + 0.3);
-    gain.gain.linearRampToValueAtTime(0, now + 0.5);
-    
-    osc.start(now);
-    osc.stop(now + 0.6);
-  } 
-  else if (type === 'call_video') {
-    // SCI-FI SWEEP (Rising Alarm)
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(400, now);
-    osc.frequency.linearRampToValueAtTime(1000, now + 0.8);
-    gain.gain.setValueAtTime(0.05, now);
-    gain.gain.linearRampToValueAtTime(0, now + 0.8);
-    osc.start(now);
-    osc.stop(now + 0.8);
-  }
-  else if (type === 'purge') {
-    // DELETION SOUND
-    osc.frequency.setValueAtTime(150, now);
-    osc.type = 'sine';
-    gain.gain.setValueAtTime(0.1, now);
-    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-    osc.start(now);
-    osc.stop(now + 0.3);
-  }
-  else {
-    // DEFAULT ERROR
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(100, now);
-    gain.gain.value = 0.1;
-    osc.start(now);
-    osc.stop(now + 0.2);
-  }
-};
-
-const getAvatar = (user) => {
-    if (!user) return `https://api.dicebear.com/7.x/bottts/svg?seed=Unknown&backgroundColor=transparent`;
-    if (user.avatar) return user.avatar;
-    return `https://api.dicebear.com/7.x/bottts/svg?seed=${user.name || 'User'}&backgroundColor=transparent`;
-};
-
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V36 (RINGTONES)
+// 2. MAIN APP: UMBRA V37 (LOUD AUDIO)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -202,6 +220,10 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
+    
+    // V37: UNLOCK AUDIO ON CLICK
+    playSound('unlock');
+
     const cleanPhone = inputPhone.replace(/\D/g, ''); 
     if (cleanPhone.length < 5 || !inputName.trim() || !inputPassword.trim()) {
         setLoginError('INVALID INPUTS'); return;
@@ -307,9 +329,8 @@ function App() {
     const qReq = query(collection(db, "friend_requests"), where("to", "==", myProfile.phone), where("status", "==", "pending"));
     const unsubReq = onSnapshot(qReq, (snap) => {
        setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-       if(!snap.empty) playSound('message'); // V36: Sound on request
+       if(!snap.empty) playSound('message');
     });
-    
     const qContacts = query(collection(db, "users", myProfile.phone, "friends"));
     const unsubContacts = onSnapshot(qContacts, (snap) => {
        setContacts(snap.docs.map(d => d.data()));
@@ -374,12 +395,11 @@ function App() {
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     const q = query(collection(db, "messages"), where("channel", "==", chatID), limit(100));
     const unsub = onSnapshot(q, (snap) => {
-       // V36: DETECT NEW MESSAGES FOR SOUND
        snap.docChanges().forEach((change) => {
            if (change.type === "added") {
                const msg = change.doc.data();
                if (msg.sender !== myProfile.phone && Date.now() - (msg.createdAt?.seconds * 1000) < 5000) {
-                   playSound('message'); // PLAY MESSAGE SOUND
+                   playSound('message'); 
                }
            }
        });
@@ -547,8 +567,7 @@ function App() {
           const data = snap.data();
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
-              // V36: PLAY RINGTONE
-              playSound(data.mode === 'audio' ? 'call_audio' : 'call_video');
+              playSound(data.mode === 'audio' ? 'call_audio' : 'call_audio'); // Use loud ring for both
           }
           if (data && data.type === 'answer' && callActive && pc.current) await pc.current.setRemoteDescription(JSON.parse(data.sdp));
           if (!data && callActive) { setCallActive(false); if(localStream.current) localStream.current.getTracks().forEach(t => t.stop()); }
@@ -616,7 +635,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V36</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V37</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -671,6 +690,7 @@ function App() {
                           <div style={styles.contactName}>{c.name}</div>
                           <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
                       </div>
+                      
                       {c.unread > 0 ? (
                           <div style={{background:'red', color:'white', borderRadius:'50%', width:'20px', height:'20px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'bold', flexShrink:0}}>
                               {c.unread}
