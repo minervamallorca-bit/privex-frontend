@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from './firebase'; 
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, getDocs, writeBatch } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, getDocs, writeBatch, increment } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // ---------------------------------------------------------
 // 1. ASSETS & UTILS
 // ---------------------------------------------------------
+// *** PASTE YOUR LOGO URL BELOW ***
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
 
@@ -40,7 +41,7 @@ const getAvatar = (user) => {
 };
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V31 (DELETE FRIEND)
+// 2. MAIN APP: UMBRA V33 (READ RECEIPTS & NOTIFS)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -222,7 +223,6 @@ function App() {
       setTimeout(() => setView('APP'), 1000);
   };
 
-  // RECOVERY & DATA LISTENERS
   const initRecovery = async () => {
       const cleanPhone = inputPhone.replace(/\D/g, '');
       if (cleanPhone.length < 5) { setLoginError('ENTER VALID PHONE'); return; }
@@ -254,6 +254,8 @@ function App() {
        setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
        if(!snap.empty) playSound('ping');
     });
+    
+    // V32 FIX: LISTENER FOR UNREAD COUNTS
     const qContacts = query(collection(db, "users", myProfile.phone, "friends"));
     const unsubContacts = onSnapshot(qContacts, (snap) => {
        setContacts(snap.docs.map(d => d.data()));
@@ -261,10 +263,13 @@ function App() {
     return () => { unsubReq(); unsubContacts(); };
   }, [myProfile]);
 
+  // V33: BURN MANAGER (UPDATED)
+  // Only deletes messages where burnAt is set AND passed
   useEffect(() => {
     const interval = setInterval(() => {
       setTime(Date.now()); 
       messages.forEach(async (msg) => {
+        // Only burn if burnAt exists (meaning it was read) and time is up
         if (msg.burnAt && msg.burnAt < Date.now() && msg.sender === myProfile?.phone) {
            try { await deleteDoc(doc(db, "messages", msg.id)); } catch(e) {}
         }
@@ -290,46 +295,64 @@ function App() {
     await setDoc(doc(db, "users", myProfile.phone, "friends", req.from), { 
         phone: req.from, 
         name: friendData.name || req.fromName,
-        avatar: friendData.avatar || null
+        avatar: friendData.avatar || null,
+        unread: 0 
     });
 
     await setDoc(doc(db, "users", req.from, "friends", myProfile.phone), { 
         phone: myProfile.phone, 
         name: myProfile.name,
-        avatar: myProfile.avatar || null
+        avatar: myProfile.avatar || null,
+        unread: 0
     });
 
     await deleteDoc(doc(db, "friend_requests", req.id));
   };
 
-  // V31: UNFRIEND (DELETE CONTACT) LOGIC
   const unfriend = async () => {
       if (!activeFriend) return;
       if (!window.confirm(`PERMANENTLY REMOVE ${activeFriend.name.toUpperCase()} FROM CONTACTS?`)) return;
-      
       playSound('purge');
-      
-      // 1. Remove them from MY list
       await deleteDoc(doc(db, "users", myProfile.phone, "friends", activeFriend.phone));
-      
-      // 2. Remove ME from THEIR list
       await deleteDoc(doc(db, "users", activeFriend.phone, "friends", myProfile.phone));
-      
-      // 3. Clear UI
       setActiveFriend(null);
       if (isMobile) setMobileView('LIST');
   };
 
   const getChatID = (phoneA, phoneB) => parseInt(phoneA) < parseInt(phoneB) ? `${phoneA}_${phoneB}` : `${phoneB}_${phoneA}`;
-  const selectFriend = (friend) => { setActiveFriend(friend); if (isMobile) setMobileView('CHAT'); };
+  
+  // V32 FIX: RESET UNREAD ON OPEN
+  const selectFriend = async (friend) => { 
+      setActiveFriend(friend); 
+      if (isMobile) setMobileView('CHAT'); 
+      if (friend.unread > 0) {
+          await updateDoc(doc(db, "users", myProfile.phone, "friends", friend.phone), { unread: 0 });
+      }
+  };
+  
   const goBack = () => { setMobileView('LIST'); if (!isMobile) setActiveFriend(null); };
 
+  // V33: MESSAGE LISTENER + READ RECEIPT LOGIC
   useEffect(() => {
     if (!activeFriend || !myProfile) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     const q = query(collection(db, "messages"), where("channel", "==", chatID), limit(100));
     const unsub = onSnapshot(q, (snap) => {
        let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+       
+       // TRIGGER READ RECEIPT IF I AM RECEIVER
+       msgs.forEach(async (msg) => {
+           if (msg.sender !== myProfile.phone && !msg.readAt) {
+               // I am reading this message for the first time
+               const updates = { readAt: Date.now() };
+               if (msg.isBurn) {
+                   updates.burnAt = Date.now() + 60000; // START TIMER NOW (60s)
+               }
+               // Update DB
+               try { await updateDoc(doc(db, "messages", msg.id), updates); } catch(e){}
+           }
+       });
+
        msgs.sort((a, b) => (a.createdAt?.seconds || Date.now()) - (b.createdAt?.seconds || Date.now()));
        setMessages(msgs);
        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
@@ -340,9 +363,30 @@ function App() {
   const sendMessage = async () => {
     if (!input.trim() || !activeFriend) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
-    let msgData = { text: input, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, type: 'text', createdAt: serverTimestamp() };
-    if (burnMode) { msgData.burnAt = Date.now() + 60000; msgData.isBurn = true; }
+    
+    // V33: NO BURN_AT YET. ONLY IS_BURN.
+    let msgData = { 
+        text: input, 
+        sender: myProfile.phone, 
+        senderName: myProfile.name, 
+        channel: chatID, 
+        type: 'text', 
+        createdAt: serverTimestamp() 
+    };
+    
+    if (burnMode) { 
+        msgData.isBurn = true;
+        // NOTE: We do NOT set burnAt here anymore.
+    }
+    
     await addDoc(collection(db, "messages"), msgData);
+    
+    // V32 FIX: UPDATE FRIEND'S UNREAD COUNT
+    try {
+        const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
+        await updateDoc(friendRef, { unread: increment(1) });
+    } catch(e) { console.log("Friend link broken"); }
+
     setInput('');
   };
 
@@ -357,8 +401,14 @@ function App() {
     if (file.type.startsWith('image/')) type = 'image';
     if (file.type.startsWith('video/')) type = 'video_file';
     let msgData = { text: url, type: type, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
-    if (burnMode) { msgData.burnAt = Date.now() + 60000; msgData.isBurn = true; }
+    if (burnMode) { msgData.isBurn = true; } // V33 Fix
+    
     await addDoc(collection(db, "messages"), msgData);
+    
+    try {
+        const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
+        await updateDoc(friendRef, { unread: increment(1) });
+    } catch(e) {}
   };
 
   const toggleRecording = async () => {
@@ -377,8 +427,14 @@ function App() {
         const url = await getDownloadURL(fileRef);
         const chatID = getChatID(myProfile.phone, activeFriend.phone);
         let msgData = { text: url, type: 'audio', sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
-        if (burnMode) { msgData.burnAt = Date.now() + 60000; msgData.isBurn = true; }
+        if (burnMode) { msgData.isBurn = true; } // V33 Fix
+        
         await addDoc(collection(db, "messages"), msgData);
+        
+        try {
+            const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
+            await updateDoc(friendRef, { unread: increment(1) });
+        } catch(e) {}
       };
       mediaRecorderRef.current.start();
       setIsRecording(true);
@@ -541,7 +597,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V31</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V33</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -591,8 +647,19 @@ function App() {
               {contacts.map(c => (
                   <div key={c.phone} onClick={() => selectFriend(c)} style={{...styles.contactRow, background: activeFriend?.phone === c.phone ? '#111' : 'transparent'}}>
                       <img src={getAvatar(c)} style={styles.avatar} alt="av"/>
-                      <div style={{flex:1, minWidth:0}}><div style={styles.contactName}>{c.name}</div><div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div></div>
-                      <div style={{color:'#00ff00'}}>➤</div>
+                      <div style={{flex:1, minWidth:0}}>
+                          <div style={styles.contactName}>{c.name}</div>
+                          <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
+                      </div>
+                      
+                      {/* V32 NOTIFICATION BADGE */}
+                      {c.unread > 0 ? (
+                          <div style={{background:'red', color:'white', borderRadius:'50%', width:'20px', height:'20px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'bold', flexShrink:0}}>
+                              {c.unread}
+                          </div>
+                      ) : (
+                          <div style={{color:'#00ff00'}}>➤</div>
+                      )}
                   </div>
               ))}
           </div>
@@ -608,9 +675,7 @@ function App() {
                         <div style={{fontSize:'10px', color: callStatus.includes('INCOMING') ? 'orange' : '#00ff00'}}>{callStatus === 'IDLE' ? 'SECURE' : callStatus}</div>
                     </div>
                     <div style={{display:'flex', gap:'5px'}}>
-                        {/* V31: UNFRIEND ICON */}
                         <button onClick={unfriend} style={{...styles.iconBtn, color:'orange', borderColor:'orange'}} title="Unfriend">🗑️</button>
-                        
                         <button onClick={wipeChat} style={{...styles.iconBtn, color:'#FF0000', borderColor:'#333'}}>🧹</button>
                         <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>🔥</button>
                         {!callActive && (<><button onClick={() => startCall('audio')} style={styles.iconBtn}>📞</button><button onClick={() => startCall('video')} style={styles.iconBtn}>🎥</button></>)}
@@ -634,7 +699,11 @@ function App() {
                 <div style={{...styles.chatArea, backgroundImage: myProfile.wallpaper ? `linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), url(${myProfile.wallpaper})` : styles.chatArea.backgroundImage, backgroundSize: 'cover' }}>
                     {messages.map(msg => {
                         let timeLeft = null;
-                        if (msg.burnAt) timeLeft = Math.max(0, Math.ceil((msg.burnAt - time) / 1000));
+                        // V33: Only calculate countdown if readAt exists
+                        if (msg.burnAt) {
+                            timeLeft = Math.max(0, Math.ceil((msg.burnAt - time) / 1000));
+                        }
+                        
                         return (
                            <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
                                <div style={{...(msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === myProfile.phone ? '#004400' : '#333')}}>
@@ -643,7 +712,12 @@ function App() {
                                    {msg.type === 'video_file' && <video src={msg.text} controls style={{maxWidth:'100%', borderRadius:'5px'}} />}
                                    {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
                                    <div style={styles.msgFooter}>
-                                       {timeLeft !== null ? <span style={{color:'orange'}}>🔥 {timeLeft}s</span> : <span></span>}
+                                       {/* V33: DISPLAY PENDING OR TIMER */}
+                                       {msg.isBurn && !msg.burnAt ? (
+                                           <span style={{color:'orange', fontSize:'9px'}}>PENDING READ</span>
+                                       ) : (
+                                           timeLeft !== null ? <span style={{color:'orange'}}>🔥 {timeLeft}s</span> : <span></span>
+                                       )}
                                        <div style={{display:'flex', gap:'8px'}}><span onClick={() => shareMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>🔗</span><span onClick={() => saveMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>💾</span></div>
                                    </div>
                                </div>
