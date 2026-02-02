@@ -13,7 +13,7 @@ export default function Login({ onLogin }) {
   return (
     <div style={styles.container}>
       <div style={styles.box}>
-        <h1 style={styles.title}>PRIVEX V3.0 (ONLINE)</h1>
+        <h1>PRIVEX V3.1 (RESTORED)</h1>
         <form onSubmit={handleSubmit}>
           <input 
             type="text" 
