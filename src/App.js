@@ -110,7 +110,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V45 (FULL DUPLEX)
+// 2. MAIN APP: UMBRA V46.1 (FORCE PULSE)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -119,7 +119,8 @@ function App() {
   const [activeFriend, setActiveFriend] = useState(null); 
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
-  
+  const [friendStatuses, setFriendStatuses] = useState({});
+
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
   const [inputPassword, setInputPassword] = useState('');
@@ -160,7 +161,6 @@ function App() {
   const avatarInputRef = useRef(null);
   const wallpaperInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
   const ringInterval = useRef(null); 
 
   const isInitialLoad = useRef(true);
@@ -172,6 +172,7 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // AUDIO WAKE
   useEffect(() => {
       const wakeUp = () => resumeAudio();
       window.addEventListener('click', wakeUp);
@@ -195,6 +196,7 @@ function App() {
       link.href = APP_LOGO;
   }, []);
 
+  // AUTO LOGIN
   useEffect(() => {
     const storedCreds = localStorage.getItem('umbra_creds');
     if (storedCreds) {
@@ -213,6 +215,61 @@ function App() {
     }
   }, []);
 
+  // V46.1: AGGRESSIVE HEARTBEAT (30s Interval)
+  useEffect(() => {
+      if (!myProfile) return;
+      
+      const sendHeartbeat = async () => {
+          try {
+              // Update 'lastActive' on my user doc
+              await updateDoc(doc(db, "users", myProfile.phone), { 
+                  lastActive: serverTimestamp() 
+              });
+          } catch(e) { console.log("Heartbeat fail", e); }
+      };
+
+      sendHeartbeat(); // Force one immediately
+      
+      const beat = setInterval(sendHeartbeat, 30000); // Repeat every 30s
+      return () => clearInterval(beat);
+  }, [myProfile]);
+
+  // V46.1: MONITOR
+  useEffect(() => {
+      if (!contacts || contacts.length === 0) return;
+      
+      const unsubs = [];
+      contacts.forEach(c => {
+          const unsub = onSnapshot(doc(db, "users", c.phone), (doc) => {
+              if(doc.exists()) {
+                  const data = doc.data();
+                  if (data.lastActive) {
+                      setFriendStatuses(prev => ({
+                          ...prev,
+                          [c.phone]: data.lastActive
+                      }));
+                  }
+              }
+          });
+          unsubs.push(unsub);
+      });
+
+      return () => unsubs.forEach(u => u());
+  }, [contacts]);
+
+  // V46.1: CALCULATE STATUS
+  const getStatusText = (phone) => {
+      const lastActive = friendStatuses[phone];
+      if (!lastActive) return "NOT CONNECTED";
+      
+      const now = Date.now();
+      const last = lastActive.seconds * 1000; // Convert Firebase timestamp to JS
+      const diff = now - last;
+      
+      // Tolerance: 70 seconds
+      return diff < 70000 ? "CONNECTED" : "NOT CONNECTED";
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
@@ -224,10 +281,12 @@ function App() {
     const userDocRef = doc(db, "users", cleanPhone);
     const userSnap = await getDoc(userDocRef);
     if (!userSnap.exists()) {
-      await setDoc(userDocRef, { phone: cleanPhone, name: inputName, password: inputPassword, createdAt: serverTimestamp() });
+      await setDoc(userDocRef, { phone: cleanPhone, name: inputName, password: inputPassword, createdAt: serverTimestamp(), lastActive: serverTimestamp() });
     } else {
       if (userSnap.data().password !== inputPassword) { setLoginError('WRONG PASSWORD'); return; }
       if (userSnap.data().name !== inputName) await updateDoc(userDocRef, { name: inputName });
+      // FORCE HEARTBEAT ON LOGIN
+      await updateDoc(userDocRef, { lastActive: serverTimestamp() });
     }
     if (saveLogin) localStorage.setItem('umbra_creds', JSON.stringify({ phone: cleanPhone, password: inputPassword }));
     else localStorage.removeItem('umbra_creds');
@@ -424,10 +483,14 @@ function App() {
     let msgData = { text: input, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, type: 'text', createdAt: serverTimestamp() };
     if (burnMode) { msgData.isBurn = true; }
     await addDoc(collection(db, "messages"), msgData);
+    
+    // UPDATE HEARTBEAT ON ACTION
+    await updateDoc(doc(db, "users", myProfile.phone), { lastActive: serverTimestamp() });
+
     try {
         const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
         await updateDoc(friendRef, { unread: increment(1) });
-    } catch(e) { console.log("Friend link broken"); }
+    } catch(e) {}
     setInput('');
   };
 
@@ -515,7 +578,6 @@ function App() {
     await batch.commit();
   };
 
-  // V45: ROBUST SIGNALING WITH ICE EXCHANGE
   const startCall = async (mode) => {
     resumeAudio();
     setCallActive(true); setCallStatus('DIALING...'); setIsVideoCall(mode === 'video');
@@ -526,18 +588,15 @@ function App() {
 
     pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
     
-    // GET STREAM AND ATTACH
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' ? { width: 640 } : false });
     localStream.current = stream;
     if (localVideoRef.current && mode === 'video') localVideoRef.current.srcObject = stream;
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
 
-    // ICE HANDLER
     pc.current.onicecandidate = (event) => {
       if (event.candidate) addDoc(offerCandidatesRef, event.candidate.toJSON());
     };
 
-    // REMOTE STREAM HANDLER
     pc.current.ontrack = (event) => {
        if (remoteVideoRef.current) {
            remoteVideoRef.current.srcObject = event.streams[0];
@@ -549,7 +608,6 @@ function App() {
 
     await setDoc(callDocRef, { type: 'offer', sdp: JSON.stringify(offer), sender: myProfile.phone, mode: mode });
 
-    // ANSWER LISTENER
     onSnapshot(callDocRef, (snap) => {
        const data = snap.data();
        if (!pc.current.currentRemoteDescription && data?.sdp && data.type === 'answer') {
@@ -559,7 +617,6 @@ function App() {
        }
     });
 
-    // CANDIDATE LISTENER
     onSnapshot(answerCandidatesRef, (snap) => {
        snap.docChanges().forEach((change) => {
            if (change.type === 'added') {
@@ -608,7 +665,6 @@ function App() {
     await updateDoc(callDocRef, { type: 'answer', sdp: JSON.stringify(answer) });
     setCallStatus('CONNECTED');
 
-    // OFFER CANDIDATES LISTENER
     onSnapshot(offerCandidatesRef, (snap) => {
        snap.docChanges().forEach((change) => {
            if (change.type === 'added') {
@@ -623,27 +679,19 @@ function App() {
      if (ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
      
      const chatID = getChatID(myProfile.phone, activeFriend.phone);
-     
-     // V45: UNIVERSAL KILL - DELETE DOCUMENT
      try { await deleteDoc(doc(db, "calls", chatID)); } catch(e) {}
-     
-     // Cleanup Local
      if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
      if(pc.current) pc.current.close();
      setCallActive(false);
   };
 
-  // CALL MONITOR
   useEffect(() => {
       if (!activeFriend) return;
       const chatID = getChatID(myProfile.phone, activeFriend.phone);
       const unsub = onSnapshot(doc(db, "calls", chatID), async (snap) => {
           const data = snap.data();
-          
-          // INCOMING CALL
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
-              
               if (!ringInterval.current) {
                   playSound('ringtone');
                   ringInterval.current = setInterval(() => {
@@ -651,8 +699,6 @@ function App() {
                   }, 2500);
               }
           }
-          
-          // CALL ENDED (DOCUMENT DELETED)
           if (!data && callActive) { 
               if (ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
               if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
@@ -726,7 +772,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V45</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V46.1</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -778,23 +824,37 @@ function App() {
              </div>
           )}
           <div style={{flex:1, overflowY:'auto'}}>
-              {contacts.map(c => (
-                  <div key={c.phone} onClick={() => selectFriend(c)} style={{...styles.contactRow, background: activeFriend?.phone === c.phone ? '#111' : 'transparent'}}>
-                      <img src={getAvatar(c)} style={styles.avatar} alt="av"/>
-                      <div style={{flex:1, minWidth:0}}>
-                          <div style={styles.contactName}>{c.name}</div>
-                          <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
-                      </div>
-                      
-                      {c.unread > 0 ? (
-                          <div style={{background:'red', color:'white', borderRadius:'50%', width:'20px', height:'20px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'bold', flexShrink:0}}>
-                              {c.unread}
-                          </div>
-                      ) : (
-                          <div style={{color:'#00ff00'}}><FaChevronRight /></div>
-                      )}
-                  </div>
-              ))}
+              {contacts.map(c => {
+                  const status = getStatusText(c.phone);
+                  return (
+                    <div key={c.phone} onClick={() => selectFriend(c)} style={{...styles.contactRow, background: activeFriend?.phone === c.phone ? '#111' : 'transparent'}}>
+                        <img src={getAvatar(c)} style={styles.avatar} alt="av"/>
+                        <div style={{flex:1, minWidth:0}}>
+                            <div style={styles.contactName}>{c.name}</div>
+                            <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
+                            
+                            {/* V46.1: STATUS INDICATOR */}
+                            <div style={{
+                                fontSize:'8px', 
+                                fontWeight:'bold', 
+                                marginTop:'3px',
+                                color: status === 'CONNECTED' ? '#00ff00' : 'red',
+                                opacity: status === 'CONNECTED' ? 1 : 0.5
+                            }}>
+                                {status}
+                            </div>
+                        </div>
+                        
+                        {c.unread > 0 ? (
+                            <div style={{background:'red', color:'white', borderRadius:'50%', width:'20px', height:'20px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'bold', flexShrink:0}}>
+                                {c.unread}
+                            </div>
+                        ) : (
+                            <div style={{color:'#00ff00'}}><FaChevronRight /></div>
+                        )}
+                    </div>
+                  );
+              })}
           </div>
           
           <div style={{padding:'15px', fontSize:'10.5px', fontWeight:'bold', color:'#00ff00', fontFamily:'monospace', textAlign:'center', borderTop:'1px solid #1f1f1f', background:'#0a0a0a'}}>
