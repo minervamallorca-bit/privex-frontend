@@ -3,10 +3,16 @@ import { db, storage } from './firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, getDocs, writeBatch, increment } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
+// V34: IMPORT PROFESSIONAL ICONS
+import { 
+  FaPowerOff, FaCog, FaUserMinus, FaBroom, FaFire, FaPhoneAlt, FaVideo, 
+  FaPhoneSlash, FaPaperclip, FaMicrophone, FaStop, FaPaperPlane, 
+  FaShareAlt, FaDownload, FaArrowLeft, FaChevronRight 
+} from 'react-icons/fa';
+
 // ---------------------------------------------------------
 // 1. ASSETS & UTILS
 // ---------------------------------------------------------
-// *** PASTE YOUR LOGO URL BELOW ***
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
 
@@ -41,7 +47,7 @@ const getAvatar = (user) => {
 };
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V33 (READ RECEIPTS & NOTIFS)
+// 2. MAIN APP: UMBRA V34 (PROFI ICONS)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -255,7 +261,6 @@ function App() {
        if(!snap.empty) playSound('ping');
     });
     
-    // V32 FIX: LISTENER FOR UNREAD COUNTS
     const qContacts = query(collection(db, "users", myProfile.phone, "friends"));
     const unsubContacts = onSnapshot(qContacts, (snap) => {
        setContacts(snap.docs.map(d => d.data()));
@@ -263,13 +268,10 @@ function App() {
     return () => { unsubReq(); unsubContacts(); };
   }, [myProfile]);
 
-  // V33: BURN MANAGER (UPDATED)
-  // Only deletes messages where burnAt is set AND passed
   useEffect(() => {
     const interval = setInterval(() => {
       setTime(Date.now()); 
       messages.forEach(async (msg) => {
-        // Only burn if burnAt exists (meaning it was read) and time is up
         if (msg.burnAt && msg.burnAt < Date.now() && msg.sender === myProfile?.phone) {
            try { await deleteDoc(doc(db, "messages", msg.id)); } catch(e) {}
         }
@@ -321,7 +323,6 @@ function App() {
 
   const getChatID = (phoneA, phoneB) => parseInt(phoneA) < parseInt(phoneB) ? `${phoneA}_${phoneB}` : `${phoneB}_${phoneA}`;
   
-  // V32 FIX: RESET UNREAD ON OPEN
   const selectFriend = async (friend) => { 
       setActiveFriend(friend); 
       if (isMobile) setMobileView('CHAT'); 
@@ -332,7 +333,6 @@ function App() {
   
   const goBack = () => { setMobileView('LIST'); if (!isMobile) setActiveFriend(null); };
 
-  // V33: MESSAGE LISTENER + READ RECEIPT LOGIC
   useEffect(() => {
     if (!activeFriend || !myProfile) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
@@ -340,15 +340,12 @@ function App() {
     const unsub = onSnapshot(q, (snap) => {
        let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
        
-       // TRIGGER READ RECEIPT IF I AM RECEIVER
        msgs.forEach(async (msg) => {
            if (msg.sender !== myProfile.phone && !msg.readAt) {
-               // I am reading this message for the first time
                const updates = { readAt: Date.now() };
                if (msg.isBurn) {
-                   updates.burnAt = Date.now() + 60000; // START TIMER NOW (60s)
+                   updates.burnAt = Date.now() + 60000; 
                }
-               // Update DB
                try { await updateDoc(doc(db, "messages", msg.id), updates); } catch(e){}
            }
        });
@@ -364,7 +361,6 @@ function App() {
     if (!input.trim() || !activeFriend) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     
-    // V33: NO BURN_AT YET. ONLY IS_BURN.
     let msgData = { 
         text: input, 
         sender: myProfile.phone, 
@@ -374,14 +370,10 @@ function App() {
         createdAt: serverTimestamp() 
     };
     
-    if (burnMode) { 
-        msgData.isBurn = true;
-        // NOTE: We do NOT set burnAt here anymore.
-    }
+    if (burnMode) { msgData.isBurn = true; }
     
     await addDoc(collection(db, "messages"), msgData);
     
-    // V32 FIX: UPDATE FRIEND'S UNREAD COUNT
     try {
         const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
         await updateDoc(friendRef, { unread: increment(1) });
@@ -401,7 +393,7 @@ function App() {
     if (file.type.startsWith('image/')) type = 'image';
     if (file.type.startsWith('video/')) type = 'video_file';
     let msgData = { text: url, type: type, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
-    if (burnMode) { msgData.isBurn = true; } // V33 Fix
+    if (burnMode) { msgData.isBurn = true; } 
     
     await addDoc(collection(db, "messages"), msgData);
     
@@ -427,7 +419,7 @@ function App() {
         const url = await getDownloadURL(fileRef);
         const chatID = getChatID(myProfile.phone, activeFriend.phone);
         let msgData = { text: url, type: 'audio', sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
-        if (burnMode) { msgData.isBurn = true; } // V33 Fix
+        if (burnMode) { msgData.isBurn = true; } 
         
         await addDoc(collection(db, "messages"), msgData);
         
@@ -597,7 +589,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V33</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V34</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -622,8 +614,8 @@ function App() {
                  <div style={styles.truncatedText}>{myProfile.name}</div>
                  <div style={{fontSize:'10px'}}>{myProfile.phone}</div>
              </div>
-             <button style={{...styles.iconBtnSmall, color:'#00ff00', marginRight:'5px'}}>⚙️</button>
-             <button onClick={(e) => { e.stopPropagation(); handleLogout(); }} style={{...styles.iconBtnSmall, color:'red', borderColor:'#333'}}>⏻</button>
+             <button style={{...styles.iconBtnSmall, color:'#00ff00', marginRight:'5px'}}><FaCog /></button>
+             <button onClick={(e) => { e.stopPropagation(); handleLogout(); }} style={{...styles.iconBtnSmall, color:'red', borderColor:'#333'}}><FaPowerOff /></button>
           </div>
           <div style={styles.addSection}>
               <div style={{display:'flex', gap:'5px'}}>
@@ -652,13 +644,12 @@ function App() {
                           <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
                       </div>
                       
-                      {/* V32 NOTIFICATION BADGE */}
                       {c.unread > 0 ? (
                           <div style={{background:'red', color:'white', borderRadius:'50%', width:'20px', height:'20px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'bold', flexShrink:0}}>
                               {c.unread}
                           </div>
                       ) : (
-                          <div style={{color:'#00ff00'}}>➤</div>
+                          <div style={{color:'#00ff00'}}><FaChevronRight /></div>
                       )}
                   </div>
               ))}
@@ -669,18 +660,18 @@ function App() {
           {activeFriend ? (
               <div style={styles.chatContainer}>
                 <div style={styles.chatHeader}>
-                    {isMobile && <button onClick={goBack} style={{...styles.iconBtn, marginRight:'10px'}}>←</button>}
+                    {isMobile && <button onClick={goBack} style={{...styles.iconBtn, marginRight:'10px'}}><FaArrowLeft /></button>}
                     <div style={{flex:1, overflow:'hidden'}}>
                         <div style={styles.truncatedText}>{activeFriend.name}</div>
                         <div style={{fontSize:'10px', color: callStatus.includes('INCOMING') ? 'orange' : '#00ff00'}}>{callStatus === 'IDLE' ? 'SECURE' : callStatus}</div>
                     </div>
                     <div style={{display:'flex', gap:'5px'}}>
-                        <button onClick={unfriend} style={{...styles.iconBtn, color:'orange', borderColor:'orange'}} title="Unfriend">🗑️</button>
-                        <button onClick={wipeChat} style={{...styles.iconBtn, color:'#FF0000', borderColor:'#333'}}>🧹</button>
-                        <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>🔥</button>
-                        {!callActive && (<><button onClick={() => startCall('audio')} style={styles.iconBtn}>📞</button><button onClick={() => startCall('video')} style={styles.iconBtn}>🎥</button></>)}
-                        {callStatus.includes('INCOMING') && <button onClick={answerCall} style={{...styles.iconBtn, background:'#00ff00', color:'black'}}>📞</button>}
-                        {callActive && <button onClick={endCall} style={{...styles.iconBtn, color:'red', borderColor:'red'}}>X</button>}
+                        <button onClick={unfriend} style={{...styles.iconBtn, color:'orange', borderColor:'orange'}} title="Unfriend"><FaUserMinus /></button>
+                        <button onClick={wipeChat} style={{...styles.iconBtn, color:'#FF0000', borderColor:'#333'}}><FaBroom /></button>
+                        <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}><FaFire /></button>
+                        {!callActive && (<><button onClick={() => startCall('audio')} style={styles.iconBtn}><FaPhoneAlt /></button><button onClick={() => startCall('video')} style={styles.iconBtn}><FaVideo /></button></>)}
+                        {callStatus.includes('INCOMING') && <button onClick={answerCall} style={{...styles.iconBtn, background:'#00ff00', color:'black'}}><FaPhoneAlt /></button>}
+                        {callActive && <button onClick={endCall} style={{...styles.iconBtn, color:'red', borderColor:'red'}}><FaPhoneSlash /></button>}
                     </div>
                 </div>
 
@@ -699,11 +690,9 @@ function App() {
                 <div style={{...styles.chatArea, backgroundImage: myProfile.wallpaper ? `linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), url(${myProfile.wallpaper})` : styles.chatArea.backgroundImage, backgroundSize: 'cover' }}>
                     {messages.map(msg => {
                         let timeLeft = null;
-                        // V33: Only calculate countdown if readAt exists
                         if (msg.burnAt) {
                             timeLeft = Math.max(0, Math.ceil((msg.burnAt - time) / 1000));
                         }
-                        
                         return (
                            <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
                                <div style={{...(msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === myProfile.phone ? '#004400' : '#333')}}>
@@ -712,13 +701,12 @@ function App() {
                                    {msg.type === 'video_file' && <video src={msg.text} controls style={{maxWidth:'100%', borderRadius:'5px'}} />}
                                    {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
                                    <div style={styles.msgFooter}>
-                                       {/* V33: DISPLAY PENDING OR TIMER */}
                                        {msg.isBurn && !msg.burnAt ? (
                                            <span style={{color:'orange', fontSize:'9px'}}>PENDING READ</span>
                                        ) : (
                                            timeLeft !== null ? <span style={{color:'orange'}}>🔥 {timeLeft}s</span> : <span></span>
                                        )}
-                                       <div style={{display:'flex', gap:'8px'}}><span onClick={() => shareMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>🔗</span><span onClick={() => saveMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>💾</span></div>
+                                       <div style={{display:'flex', gap:'8px'}}><span onClick={() => shareMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}><FaShareAlt /></span><span onClick={() => saveMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}><FaDownload /></span></div>
                                    </div>
                                </div>
                            </div>
@@ -729,10 +717,10 @@ function App() {
 
                 <div style={styles.inputArea}>
                     <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
-                    <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
-                    <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#333'}}>{isRecording ? '⏹' : '🎤'}</button>
+                    <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}><FaPaperclip /></button>
+                    <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#333'}}>{isRecording ? <FaStop /> : <FaMicrophone />}</button>
                     <input value={input} onChange={e => setInput(e.target.value)} placeholder="MESSAGE..." style={styles.inputBar} onKeyPress={e => e.key === 'Enter' && sendMessage()}/>
-                    <button onClick={sendMessage} style={styles.sendBtn}>SEND</button>
+                    <button onClick={sendMessage} style={styles.sendBtn}><FaPaperPlane /></button>
                 </div>
               </div>
           ) : (
