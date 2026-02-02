@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from './firebase'; 
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // ---------------------------------------------------------
@@ -30,7 +30,7 @@ const DecryptedText = ({ text }) => {
 // 2. MAIN APPLICATION
 // ---------------------------------------------------------
 function App() {
-  const [user, setUser] = useState(null); // { name, id, channel }
+  const [user, setUser] = useState(null); 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -38,23 +38,33 @@ function App() {
   
   // Login Inputs
   const [loginName, setLoginName] = useState('');
-  const [loginChannel, setLoginChannel] = useState('MAIN_LOBBY');
+  const [loginChannel, setLoginChannel] = useState('MAIN');
 
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  // --- DATABASE LISTENER (Scoped to Channel) ---
+  // --- DATABASE LISTENER (TROJAN HORSE METHOD) ---
   useEffect(() => {
     if (!user) return;
     
-    // We now look inside "channels" -> "CHANNEL_NAME" -> "messages"
-    const channelPath = `channels/${user.channel}/messages`;
-    const q = query(collection(db, channelPath), orderBy("createdAt"));
+    // We query the MAIN collection (which we know works)
+    // We grab the last 100 messages to keep it fast
+    const q = query(collection(db, "messages"), orderBy("createdAt", "asc"), limit(100));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // CLIENT-SIDE FILTERING:
+      // Only show messages that match our channel OR are global (legacy)
+      const filteredMessages = allMessages.filter(msg => {
+        // If message has no channel, show it in 'MAIN'
+        const msgChannel = msg.channel || 'MAIN';
+        return msgChannel === user.channel;
+      });
+
+      setMessages(filteredMessages);
     });
 
     return () => unsubscribe();
@@ -74,12 +84,13 @@ function App() {
 
   const sendMessage = async (content, type) => {
     if (!user) return;
-    const channelPath = `channels/${user.channel}/messages`;
     
-    await addDoc(collection(db, channelPath), {
+    // We write to the MAIN collection, but we tag it with the channel
+    await addDoc(collection(db, "messages"), {
       text: content, 
       type: type, 
-      sender: user.name, 
+      sender: user.name,
+      channel: user.channel, // <--- THE TAG
       createdAt: serverTimestamp() 
     });
   };
@@ -131,7 +142,6 @@ function App() {
   };
 
   const startCall = (videoMode) => {
-    // Generate a secure room based on the current channel so everyone lands in the same call
     const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
     const callUrl = `https://meet.jit.si/PRIVEX_${secureHash}_${Math.floor(Math.random() * 1000)}`;
     sendMessage(callUrl, videoMode ? 'video_call' : 'voice_call');
@@ -141,8 +151,7 @@ function App() {
   const handleLogin = (e) => {
     e.preventDefault();
     if (loginName.trim()) {
-      // Normalize channel name to uppercase/no-spaces
-      const safeChannel = loginChannel.trim().toUpperCase().replace(/\s/g, '_') || 'MAIN_LOBBY';
+      const safeChannel = loginChannel.trim().toUpperCase().replace(/\s/g, '_') || 'MAIN';
       setUser({ name: loginName, id: Date.now(), channel: safeChannel });
     }
   };
@@ -152,7 +161,7 @@ function App() {
     return (
       <div style={styles.container}>
         <div style={styles.box}>
-          <h1 style={{color: '#00ff00', letterSpacing: '5px', marginBottom:'30px'}}>PRIVEX V9.0 (SECURE)</h1>
+          <h1 style={{color: '#00ff00', letterSpacing: '5px', marginBottom:'30px'}}>PRIVEX V9.1 (PATCHED)</h1>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <div>
               <label style={styles.label}>IDENTITY</label>
@@ -170,7 +179,7 @@ function App() {
                 value={loginChannel}
                 onChange={e => setLoginChannel(e.target.value)}
                 type="text" 
-                placeholder="DEFAULT: MAIN_LOBBY" 
+                placeholder="DEFAULT: MAIN" 
                 style={styles.input} 
               />
             </div>
@@ -188,10 +197,10 @@ function App() {
       <div style={styles.header}>
         <div style={{display:'flex', flexDirection:'column'}}>
           <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
-            <div style={{width:'10px', height:'10px', background:'#00ff00', borderRadius:'50%', boxShadow: '0 0 10px #00ff00'}}></div>
+            <div style={{width:'10px', height:'10px', background: user.channel === 'MAIN' ? 'red' : '#00ff00', borderRadius:'50%', boxShadow: '0 0 10px #00ff00'}}></div>
             <span style={{fontWeight:'bold'}}>FREQ: {user.channel}</span>
           </div>
-          <span style={{fontSize:'10px', opacity:0.6, marginTop:'4px'}}>ENCRYPTION: AES-256 (SIMULATED)</span>
+          <span style={{fontSize:'10px', opacity:0.6, marginTop:'4px'}}>FILTER: ACTIVE</span>
         </div>
         
         <div style={{display:'flex', gap: '10px'}}>
@@ -205,7 +214,7 @@ function App() {
       <div style={styles.chatArea}>
         {messages.length === 0 && (
            <div style={{textAlign:'center', opacity: 0.5, marginTop: '20px'}}>
-              -- FREQUENCY SILENT. INITIATE TRANSMISSION --
+              -- CHANNEL SILENT. START TRANSMISSION --
            </div>
         )}
         {messages.map(msg => (
@@ -223,7 +232,7 @@ function App() {
                 
                 {(msg.type === 'video_call' || msg.type === 'voice_call') && (
                   <a href={msg.text} target="_blank" rel="noreferrer" style={styles.link}>
-                    {msg.type === 'video_call' ? '🎥 SECURE VIDEO LINK' : '📞 SECURE VOICE LINK'}
+                    {msg.type === 'video_call' ? '🎥 JOIN SECURE CALL' : '📞 JOIN SECURE CALL'}
                   </a>
                 )}
              </div>
@@ -255,7 +264,7 @@ function App() {
   );
 }
 
-// --- STYLES (MONOLITH V9) ---
+// --- STYLES (NO CHANGES) ---
 const styles = {
   container: { height: '100vh', background: '#050505', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex', flexDirection: 'column' },
   box: { margin: 'auto', border: '1px solid #00ff00', padding: '40px', width:'90%', maxWidth:'400px', textAlign: 'center', borderRadius: '5px', boxShadow: '0 0 30px rgba(0,255,0,0.15)', background: '#000' },
