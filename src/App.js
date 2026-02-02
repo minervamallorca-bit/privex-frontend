@@ -33,7 +33,7 @@ const playSound = (type) => {
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V26 (VIDEO FILES)
+// 2. MAIN APP: UMBRA V27 (SHARE & SAVE)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -44,7 +44,6 @@ function App() {
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
   
-  // INPUTS
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
   const [inputPassword, setInputPassword] = useState('');
@@ -53,13 +52,11 @@ function App() {
   const [addStatus, setAddStatus] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // RECOVERY
   const [recoveryStep, setRecoveryStep] = useState(1);
   const [recoveryCode, setRecoveryCode] = useState('');
   const [inputCode, setInputCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
 
-  // CHAT
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [callActive, setCallActive] = useState(false);
@@ -70,7 +67,6 @@ function App() {
   const [isRecording, setIsRecording] = useState(false); 
   const [time, setTime] = useState(Date.now()); 
   
-  // REFS
   const messagesEndRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -87,7 +83,6 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // AUTO LOGIN
   useEffect(() => {
     const storedCreds = localStorage.getItem('umbra_creds');
     if (storedCreds) {
@@ -106,7 +101,6 @@ function App() {
     }
   }, []);
 
-  // AUTH
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
@@ -161,7 +155,6 @@ function App() {
       setLoginError('');
   };
 
-  // DATA
   useEffect(() => {
     if (!myProfile) return;
     const qReq = query(collection(db, "friend_requests"), where("to", "==", myProfile.phone), where("status", "==", "pending"));
@@ -205,11 +198,9 @@ function App() {
   };
 
   const getChatID = (phoneA, phoneB) => parseInt(phoneA) < parseInt(phoneB) ? `${phoneA}_${phoneB}` : `${phoneB}_${phoneA}`;
-  
   const selectFriend = (friend) => { setActiveFriend(friend); if (isMobile) setMobileView('CHAT'); };
   const goBack = () => { setMobileView('LIST'); if (!isMobile) setActiveFriend(null); };
 
-  // CLIENT SIDE SORTING
   useEffect(() => {
     if (!activeFriend || !myProfile) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
@@ -236,7 +227,6 @@ function App() {
     setInput('');
   };
 
-  // V26: HANDLE VIDEO FILES
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !activeFriend) return;
@@ -244,20 +234,10 @@ function App() {
     await uploadBytes(fileRef, file);
     const url = await getDownloadURL(fileRef);
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
-    
-    // DETERMINE FILE TYPE
     let type = 'document';
     if (file.type.startsWith('image/')) type = 'image';
-    if (file.type.startsWith('video/')) type = 'video_file'; // V26 Added
-
-    let msgData = { 
-        text: url, 
-        type: type, 
-        sender: myProfile.phone, 
-        senderName: myProfile.name, 
-        channel: chatID, 
-        createdAt: serverTimestamp() 
-    };
+    if (file.type.startsWith('video/')) type = 'video_file';
+    let msgData = { text: url, type: type, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
     if (burnMode) { msgData.burnAt = Date.now() + 60000; msgData.isBurn = true; }
     await addDoc(collection(db, "messages"), msgData);
   };
@@ -284,6 +264,33 @@ function App() {
       mediaRecorderRef.current.start();
       setIsRecording(true);
     }
+  };
+
+  // --- V27: EXTRACTION TOOLS ---
+  const shareMessage = async (msg) => {
+      const data = msg.type === 'text' ? msg.text : msg.text; // Text or URL
+      if (navigator.share) {
+          try { await navigator.share({ title: 'UMBRA INTEL', text: data, url: msg.type !== 'text' ? data : null }); } catch(e){}
+      } else {
+          navigator.clipboard.writeText(data);
+          alert('COPIED TO CLIPBOARD');
+      }
+  };
+
+  const saveMessage = (msg) => {
+      const link = document.createElement("a");
+      if (msg.type === 'text') {
+          const file = new Blob([msg.text], { type: 'text/plain' });
+          link.href = URL.createObjectURL(file);
+          link.download = `umbra_log_${Date.now()}.txt`;
+      } else {
+          link.href = msg.text;
+          link.download = `umbra_file_${Date.now()}`;
+          link.target = "_blank";
+      }
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
   };
 
   const wipeChat = async () => {
@@ -387,7 +394,7 @@ function App() {
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V26</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V27</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -476,18 +483,20 @@ function App() {
                         return (
                            <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
                                <div style={{...(msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === myProfile.phone ? '#004400' : '#333')}}>
+                                   {/* CONTENT RENDER */}
                                    {msg.type === 'text' && msg.text}
-                                   
                                    {msg.type === 'image' && <img src={msg.text} style={{maxWidth:'100%', borderRadius:'5px'}} alt="msg"/>}
-                                   
+                                   {msg.type === 'video_file' && <video src={msg.text} controls style={{maxWidth:'100%', borderRadius:'5px'}} />}
                                    {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
                                    
-                                   {/* V26: VIDEO FILE RENDERER */}
-                                   {msg.type === 'video_file' && (
-                                       <video src={msg.text} controls style={{maxWidth:'100%', borderRadius:'5px'}} />
-                                   )}
-
-                                   {timeLeft !== null && <div style={{fontSize:'8px', color:'orange', marginTop:'5px'}}>🔥 {timeLeft}s</div>}
+                                   {/* V27: EXTRACTION FOOTER */}
+                                   <div style={styles.msgFooter}>
+                                       {timeLeft !== null ? <span style={{color:'orange'}}>🔥 {timeLeft}s</span> : <span></span>}
+                                       <div style={{display:'flex', gap:'8px'}}>
+                                           <span onClick={() => shareMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>🔗</span>
+                                           <span onClick={() => saveMessage(msg)} style={{cursor:'pointer', fontSize:'12px'}}>💾</span>
+                                       </div>
+                                   </div>
                                </div>
                            </div>
                         );
@@ -537,7 +546,10 @@ const styles = {
   sendBtn: { background: '#00ff00', color: 'black', border: 'none', padding: '0 15px', height: '44px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '2px', flexShrink: 0 },
   myMsg: { background: 'rgba(0, 50, 0, 0.3)', border: '1px solid #004400', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#e0ffe0', wordWrap: 'break-word' },
   otherMsg: { background: '#111', border: '1px solid #333', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#ccc', wordWrap: 'break-word' },
-  emptyState: { flex: 1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#333' }
+  emptyState: { flex: 1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'#333' },
+  
+  // V27: EXTRACTION FOOTER STYLE
+  msgFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', borderTop: '1px solid rgba(0,255,0,0.1)', paddingTop: '5px', opacity: 0.8 }
 };
 
 export default App;
