@@ -4,8 +4,14 @@ import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit,
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // ---------------------------------------------------------
-// 1. UTILS
+// 1. ASSETS & UTILS
 // ---------------------------------------------------------
+
+// *** IMPORTANT: PASTE YOUR LOGO URL INSIDE THE QUOTES BELOW ***
+const APP_LOGO = "https://firebasestorage.googleapis.com/v0/b/privex-network.firebasestorage.app/o/umbra_files%2F1770058412238_ChatGPT%20Image%202%20feb%202026%2C%2019_41_07.png?alt=media&token=d4dc654c-7125-468f-93de-c411bfb7143b
+"; // <-- REPLACE THIS LINK WITH YOUR LOGO URL
+const APP_TITLE = "UMBRA SECURE";
+
 const playSound = (type) => {
   const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const oscillator = audioCtx.createOscillator();
@@ -27,7 +33,7 @@ const playSound = (type) => {
   oscillator.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   oscillator.start();
-  oscillator.stop(audioCtx.currentTime + 0.3);
+  oscillator.stop(audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.3));
 };
 
 const getAvatar = (user) => {
@@ -37,7 +43,7 @@ const getAvatar = (user) => {
 };
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V29.1 (FORCE PROPAGATION)
+// 2. MAIN APP: UMBRA V30 (GLOBAL BRANDING)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -48,7 +54,7 @@ function App() {
   const [contacts, setContacts] = useState([]);
   const [requests, setRequests] = useState([]);
   
-  // LOGIN INPUTS
+  // INPUTS
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
   const [inputPassword, setInputPassword] = useState('');
@@ -57,14 +63,14 @@ function App() {
   const [addStatus, setAddStatus] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // PROFILE EDIT
+  // SETTINGS
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editLocation, setEditLocation] = useState('');
   const [editAvatar, setEditAvatar] = useState(null);
   const [editWallpaper, setEditWallpaper] = useState(null);
   const [savingProfile, setSavingProfile] = useState(false);
-  const [saveStatusText, setSaveStatusText] = useState('SAVE CONFIGURATION'); // Feedback text
+  const [saveStatusText, setSaveStatusText] = useState('SAVE CONFIGURATION');
 
   // RECOVERY
   const [recoveryStep, setRecoveryStep] = useState(1);
@@ -100,6 +106,20 @@ function App() {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // V30: BRANDING INJECTION (FAVICON & TITLE)
+  useEffect(() => {
+      document.title = APP_TITLE;
+      
+      // Update Favicon
+      let link = document.querySelector("link[rel~='icon']");
+      if (!link) {
+          link = document.createElement('link');
+          link.rel = 'icon';
+          document.head.appendChild(link);
+      }
+      link.href = APP_LOGO;
   }, []);
 
   // AUTO LOGIN
@@ -164,14 +184,11 @@ function App() {
       setView('SETTINGS');
   };
 
-  // V29.1: FORCE PROPAGATION
   const saveProfile = async () => {
       setSavingProfile(true);
       setSaveStatusText('UPLOADING ASSETS...');
-      
       let updates = { name: editName, email: editEmail, location: editLocation };
       
-      // Upload Images
       if (editAvatar) {
           const avatarRef = ref(storage, `avatars/${myProfile.phone}_${Date.now()}`);
           await uploadBytes(avatarRef, editAvatar);
@@ -184,13 +201,10 @@ function App() {
       }
 
       setSaveStatusText('UPDATING DATABASE...');
-      // 1. Update Self
       await updateDoc(doc(db, "users", myProfile.phone), updates);
 
-      // 2. FORCE UPDATE FRIENDS
       const myNewAvatar = updates.avatar || myProfile.avatar || null;
       const myNewName = updates.name || myProfile.name;
-      
       const friendsSnap = await getDocs(collection(db, "users", myProfile.phone, "friends"));
       const batch = writeBatch(db);
       let count = 0;
@@ -198,11 +212,7 @@ function App() {
       friendsSnap.forEach((friendDoc) => {
           const friendPhone = friendDoc.id;
           const refInFriend = doc(db, "users", friendPhone, "friends", myProfile.phone);
-          // V29.1: Using SET with MERGE instead of UPDATE to prevent errors if doc is missing
-          batch.set(refInFriend, { 
-              name: myNewName, 
-              avatar: myNewAvatar 
-          }, { merge: true });
+          batch.set(refInFriend, { name: myNewName, avatar: myNewAvatar }, { merge: true });
           count++;
       });
 
@@ -211,14 +221,12 @@ function App() {
           await batch.commit();
       }
 
-      // 3. Update Local State
       setMyProfile({ ...myProfile, ...updates });
       setSavingProfile(false);
       setSaveStatusText('SAVED!');
       setTimeout(() => setView('APP'), 1000);
   };
 
-  // RECOVERY & DATA LISTENERS
   const initRecovery = async () => {
       const cleanPhone = inputPhone.replace(/\D/g, '');
       if (cleanPhone.length < 5) { setLoginError('ENTER VALID PHONE'); return; }
@@ -279,7 +287,6 @@ function App() {
     setFriendPhone('');
   };
 
-  // SMART ACCEPT
   const acceptRequest = async (req) => {
     const friendDoc = await getDoc(doc(db, "users", req.from));
     const friendData = friendDoc.exists() ? friendDoc.data() : {};
@@ -505,7 +512,6 @@ function App() {
                       {editWallpaper ? 'IMAGE SELECTED' : 'UPLOAD IMAGE'}
                   </button>
               </div>
-              {/* V29.1: FEEDBACK BUTTON */}
               <button style={styles.btn} onClick={saveProfile} disabled={savingProfile}>
                   {savingProfile ? saveStatusText : 'SAVE CONFIGURATION'}
               </button>
@@ -515,12 +521,14 @@ function App() {
       );
   }
 
+  // V30: LOGIN SCREEN WITH BRANDING
   if (view === 'LOGIN') {
      return (
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
+              <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V29.1</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V30</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
