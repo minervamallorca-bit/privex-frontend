@@ -37,7 +37,7 @@ const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name
 // ---------------------------------------------------------
 function App() {
   // STATE
-  const [view, setView] = useState('LOGIN'); 
+  const [view, setView] = useState('LOGIN'); // LOGIN, RECOVERY, APP
   const [mobileView, setMobileView] = useState('LIST'); 
   const [myProfile, setMyProfile] = useState(null); 
   const [activeFriend, setActiveFriend] = useState(null); 
@@ -52,6 +52,12 @@ function App() {
   const [friendPhone, setFriendPhone] = useState('');
   const [addStatus, setAddStatus] = useState('');
   const [loginError, setLoginError] = useState('');
+
+  // V25: RECOVERY STATE
+  const [recoveryStep, setRecoveryStep] = useState(1); // 1: Phone, 2: Code+NewPass
+  const [recoveryCode, setRecoveryCode] = useState('');
+  const [inputCode, setInputCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   // CHAT
   const [messages, setMessages] = useState([]);
@@ -130,6 +136,42 @@ function App() {
     setMyProfile(null);
     setMessages([]);
     setActiveFriend(null);
+  };
+
+  // V25: RECOVERY LOGIC
+  const initRecovery = async () => {
+      const cleanPhone = inputPhone.replace(/\D/g, '');
+      if (cleanPhone.length < 5) { setLoginError('ENTER VALID PHONE'); return; }
+      
+      const userDocRef = doc(db, "users", cleanPhone);
+      const userSnap = await getDoc(userDocRef);
+      
+      if (!userSnap.exists()) {
+          setLoginError('USER NOT FOUND');
+          return;
+      }
+
+      // GENERATE CODE (Simulation)
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      setRecoveryCode(code);
+      setRecoveryStep(2);
+      
+      // SIMULATE SMS
+      alert(`[UMBRA NETWORK]\n\nRECOVERY CODE: ${code}\n\n(This is a simulation. In production, this would be an SMS.)`);
+  };
+
+  const completeRecovery = async () => {
+      if (inputCode !== recoveryCode) { setLoginError('INVALID CODE'); return; }
+      if (!newPassword.trim()) { setLoginError('ENTER NEW PASSWORD'); return; }
+
+      const cleanPhone = inputPhone.replace(/\D/g, '');
+      await updateDoc(doc(db, "users", cleanPhone), { password: newPassword });
+      
+      alert("PASSWORD UPDATED. PLEASE LOGIN.");
+      setView('LOGIN');
+      setRecoveryStep(1);
+      setInputPassword('');
+      setLoginError('');
   };
 
   // DATA
@@ -309,13 +351,42 @@ function App() {
       return () => unsub();
   }, [activeFriend, callActive]);
 
+  // V25: RECOVERY VIEW
+  if (view === 'RECOVERY') {
+      return (
+        <div style={styles.fullCenter}>
+           <div style={styles.loginBox}>
+              <h1 style={{color: 'orange', fontSize: '32px', marginBottom:'20px'}}>RECOVERY</h1>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>STEP {recoveryStep} OF 2</div>
+              
+              {recoveryStep === 1 ? (
+                  <>
+                    <input style={styles.input} placeholder="CONFIRM PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
+                    {loginError && <div style={{color:'red', fontSize:'12px', marginBottom:'10px'}}>{loginError}</div>}
+                    <button style={styles.btn} onClick={initRecovery}>SEND CODE</button>
+                  </>
+              ) : (
+                  <>
+                    <input style={styles.input} placeholder="ENTER CODE" value={inputCode} onChange={e => setInputCode(e.target.value)} type="tel"/>
+                    <input style={styles.input} placeholder="NEW PASSWORD" value={newPassword} onChange={e => setNewPassword(e.target.value)} type="password"/>
+                    {loginError && <div style={{color:'red', fontSize:'12px', marginBottom:'10px'}}>{loginError}</div>}
+                    <button style={styles.btn} onClick={completeRecovery}>RESET & UNLOCK</button>
+                  </>
+              )}
+              
+              <button style={{...styles.btn, background:'transparent', border:'1px solid #333', color:'#888', marginTop:'10px'}} onClick={() => { setView('LOGIN'); setRecoveryStep(1); setLoginError(''); }}>CANCEL</button>
+           </div>
+        </div>
+      );
+  }
+
   // LOGIN RENDER
   if (view === 'LOGIN') {
      return (
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V24.1</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V25</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -325,6 +396,11 @@ function App() {
               </div>
               {loginError && <div style={{color:'red', fontSize:'12px', marginBottom:'10px'}}>{loginError}</div>}
               <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
+              
+              {/* V25: LOST ACCESS BUTTON */}
+              <div style={{marginTop:'15px', cursor:'pointer', fontSize:'10px', color:'#555', textDecoration:'underline'}} onClick={() => setView('RECOVERY')}>
+                  LOST ACCESS?
+              </div>
            </div>
         </div>
      );
@@ -369,11 +445,10 @@ function App() {
           </div>
       </div>
 
-      {/* RIGHT MAIN (FIXED LAYOUT) */}
+      {/* RIGHT MAIN */}
       <div style={{...styles.main, display: isMobile && mobileView === 'LIST' ? 'none' : 'flex'}}>
           {activeFriend ? (
               <div style={styles.chatContainer}>
-                {/* 1. TOP HEADER (ABSOLUTE) */}
                 <div style={styles.chatHeader}>
                     {isMobile && <button onClick={goBack} style={{...styles.iconBtn, marginRight:'10px'}}>←</button>}
                     <div style={{flex:1, overflow:'hidden'}}>
@@ -389,7 +464,6 @@ function App() {
                     </div>
                 </div>
 
-                {/* VIDEO LAYER */}
                 {callActive && isVideoCall && (
                     <div style={{height: '200px', background: '#000', position:'relative', borderBottom:'1px solid #00ff00', flexShrink:0}}>
                         <video ref={remoteVideoRef} autoPlay playsInline style={{width:'100%', height:'100%', objectFit:'cover'}} />
@@ -402,7 +476,6 @@ function App() {
                      <div style={{height: '50px', background: '#000', display:'flex', alignItems:'center', justifyContent:'center', color:'#00ff00', borderBottom:'1px solid #00ff00', fontSize:'12px'}}>AUDIO LINK ACTIVE</div>
                 )}
 
-                {/* 2. CHAT SCROLL AREA (FLEX GROW) */}
                 <div style={styles.chatArea}>
                     {messages.map(msg => {
                         let timeLeft = null;
@@ -420,7 +493,6 @@ function App() {
                     <div ref={messagesEndRef} />
                 </div>
 
-                {/* 3. INPUT BAR (ABSOLUTE BOTTOM) */}
                 <div style={styles.inputArea}>
                     <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
                     <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
@@ -460,7 +532,7 @@ const styles = {
 
   main: { flex: 1, display: 'flex', flexDirection: 'column', background:'#050505', minWidth: 0, position: 'relative', height: '100%' },
   
-  // V24.1: CHAT FLEXBOX FIX
+  // CHAT FLEXBOX FIX
   chatContainer: { display: 'flex', flexDirection: 'column', height: '100%', width: '100%' },
   
   chatHeader: { padding: '10px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background:'#0a0a0a', flexShrink: 0 },
