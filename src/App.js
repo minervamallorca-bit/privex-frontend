@@ -6,10 +6,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 // ---------------------------------------------------------
 // 1. ASSETS & UTILS
 // ---------------------------------------------------------
-
-// *** IMPORTANT: PASTE YOUR LOGO URL INSIDE THE QUOTES BELOW ***
-const APP_LOGO = "https://firebasestorage.googleapis.com/v0/b/privex-network.firebasestorage.app/o/umbra_files%2F1770058412238_ChatGPT%20Image%202%20feb%202026%2C%2019_41_07.png?alt=media&token=d4dc654c-7125-468f-93de-c411bfb7143b
-"; // <-- REPLACE THIS LINK WITH YOUR LOGO URL
+const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
 
 const playSound = (type) => {
@@ -33,7 +30,7 @@ const playSound = (type) => {
   oscillator.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   oscillator.start();
-  oscillator.stop(audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.3));
+  oscillator.stop(audioCtx.currentTime + 0.3);
 };
 
 const getAvatar = (user) => {
@@ -43,7 +40,7 @@ const getAvatar = (user) => {
 };
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V30 (GLOBAL BRANDING)
+// 2. MAIN APP: UMBRA V31 (DELETE FRIEND)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -108,11 +105,9 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // V30: BRANDING INJECTION (FAVICON & TITLE)
+  // BRANDING
   useEffect(() => {
       document.title = APP_TITLE;
-      
-      // Update Favicon
       let link = document.querySelector("link[rel~='icon']");
       if (!link) {
           link = document.createElement('link');
@@ -227,6 +222,7 @@ function App() {
       setTimeout(() => setView('APP'), 1000);
   };
 
+  // RECOVERY & DATA LISTENERS
   const initRecovery = async () => {
       const cleanPhone = inputPhone.replace(/\D/g, '');
       if (cleanPhone.length < 5) { setLoginError('ENTER VALID PHONE'); return; }
@@ -304,6 +300,24 @@ function App() {
     });
 
     await deleteDoc(doc(db, "friend_requests", req.id));
+  };
+
+  // V31: UNFRIEND (DELETE CONTACT) LOGIC
+  const unfriend = async () => {
+      if (!activeFriend) return;
+      if (!window.confirm(`PERMANENTLY REMOVE ${activeFriend.name.toUpperCase()} FROM CONTACTS?`)) return;
+      
+      playSound('purge');
+      
+      // 1. Remove them from MY list
+      await deleteDoc(doc(db, "users", myProfile.phone, "friends", activeFriend.phone));
+      
+      // 2. Remove ME from THEIR list
+      await deleteDoc(doc(db, "users", activeFriend.phone, "friends", myProfile.phone));
+      
+      // 3. Clear UI
+      setActiveFriend(null);
+      if (isMobile) setMobileView('LIST');
   };
 
   const getChatID = (phoneA, phoneB) => parseInt(phoneA) < parseInt(phoneB) ? `${phoneA}_${phoneB}` : `${phoneB}_${phoneA}`;
@@ -521,14 +535,13 @@ function App() {
       );
   }
 
-  // V30: LOGIN SCREEN WITH BRANDING
   if (view === 'LOGIN') {
      return (
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V30</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V31</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -595,7 +608,10 @@ function App() {
                         <div style={{fontSize:'10px', color: callStatus.includes('INCOMING') ? 'orange' : '#00ff00'}}>{callStatus === 'IDLE' ? 'SECURE' : callStatus}</div>
                     </div>
                     <div style={{display:'flex', gap:'5px'}}>
-                        <button onClick={wipeChat} style={{...styles.iconBtn, color:'#FF0000', borderColor:'#333'}}>🗑️</button>
+                        {/* V31: UNFRIEND ICON */}
+                        <button onClick={unfriend} style={{...styles.iconBtn, color:'orange', borderColor:'orange'}} title="Unfriend">🗑️</button>
+                        
+                        <button onClick={wipeChat} style={{...styles.iconBtn, color:'#FF0000', borderColor:'#333'}}>🧹</button>
                         <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>🔥</button>
                         {!callActive && (<><button onClick={() => startCall('audio')} style={styles.iconBtn}>📞</button><button onClick={() => startCall('video')} style={styles.iconBtn}>🎥</button></>)}
                         {callStatus.includes('INCOMING') && <button onClick={answerCall} style={{...styles.iconBtn, background:'#00ff00', color:'black'}}>📞</button>}
