@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Login from './components/Login';
 import ChatRoom from './components/ChatRoom';
 import './App.css';
@@ -14,7 +14,7 @@ const THEMES = {
 // 🔒 PIN COMPONENT
 function PinPad({ onUnlock, theme }) {
   const [pin, setPin] = useState('');
-  const CORRECT_PIN = "1999"; // <--- YOUR MASTER PASSWORD
+  const CORRECT_PIN = "1999"; 
 
   const handlePress = (num) => {
     if (pin.length < 4) {
@@ -22,7 +22,7 @@ function PinPad({ onUnlock, theme }) {
       setPin(newPin);
       if (newPin === CORRECT_PIN) onUnlock();
       if (newPin.length === 4 && newPin !== CORRECT_PIN) {
-        setTimeout(() => setPin(''), 300); // Shake/Reset on fail
+        setTimeout(() => setPin(''), 300); 
       }
     }
   };
@@ -40,7 +40,6 @@ function PinPad({ onUnlock, theme }) {
           ))}
           <button onClick={() => setPin('')} style={{...styles.pinBtn, borderColor: 'red', color: 'red'}}>C</button>
           <button onClick={() => handlePress(0)} style={{...styles.pinBtn, borderColor: theme.primary, color: theme.primary}}>0</button>
-          <button style={{...styles.pinBtn, borderColor: theme.primary, color: theme.primary}}>↵</button>
         </div>
       </div>
     </div>
@@ -49,10 +48,9 @@ function PinPad({ onUnlock, theme }) {
 
 function App() {
   const [user, setUser] = useState(null);
-  const [locked, setLocked] = useState(true); // Default: LOCKED
-  const [currentTheme, setCurrentTheme] = useState('green'); // Default: GREEN
+  const [locked, setLocked] = useState(true); 
+  const [currentTheme, setCurrentTheme] = useState('green');
 
-  // Theme Cycler
   const toggleTheme = () => {
     const keys = Object.keys(THEMES);
     const nextIndex = (keys.indexOf(currentTheme) + 1) % keys.length;
@@ -74,7 +72,7 @@ function App() {
           user={user} 
           logout={() => setUser(null)} 
           theme={themeStyle} 
-          toggleTheme={toggleTheme} // Pass the ability to change color
+          toggleTheme={toggleTheme} 
         />
       )}
     </div>

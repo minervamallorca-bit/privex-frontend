@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 
 export default function Login({ onLogin, theme }) {
+  // Safety check: If theme is missing, use default green to prevent crash
+  const safeTheme = theme || { primary: '#00ff00', bg: '#050505', secondary: 'rgba(0, 255, 0, 0.1)' };
+  
   const [name, setName] = useState('');
 
   const handleSubmit = (e) => {
@@ -11,19 +14,18 @@ export default function Login({ onLogin, theme }) {
   };
 
   return (
-    <div style={{...styles.container, background: theme.bg, color: theme.primary}}>
-      <div style={{...styles.box, borderColor: theme.primary, boxShadow: `0 0 15px ${theme.secondary}`}}>
+    <div style={{...styles.container, background: safeTheme.bg, color: safeTheme.primary}}>
+      <div style={{...styles.box, borderColor: safeTheme.primary, boxShadow: `0 0 15px ${safeTheme.secondary}`}}>
         <h1 style={styles.title}>PRIVEX V4.0 (SECURE)</h1>
-        
         <form onSubmit={handleSubmit}>
           <input 
             type="text" 
             placeholder="ENTER AGENT ID" 
             value={name}
             onChange={(e) => setName(e.target.value)}
-            style={{...styles.input, borderColor: theme.primary, color: theme.primary}}
+            style={{...styles.input, borderColor: safeTheme.primary, color: safeTheme.primary}}
           />
-          <button type="submit" style={{...styles.button, background: theme.primary}}>
+          <button type="submit" style={{...styles.button, background: safeTheme.primary}}>
             AUTHENTICATE
           </button>
         </form>
