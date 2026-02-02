@@ -3,7 +3,7 @@ import { db, storage } from './firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, getDocs, writeBatch, increment } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// V35: ICONS
+// ICONS
 import { 
   FaPowerOff, FaCog, FaUserMinus, FaBroom, FaFire, FaPhoneAlt, FaVideo, 
   FaPhoneSlash, FaPaperclip, FaMicrophone, FaStop, FaPaperPlane, 
@@ -13,10 +13,11 @@ import {
 // ---------------------------------------------------------
 // 1. ASSETS & UTILS
 // ---------------------------------------------------------
+// *** PASTE YOUR LOGO URL BELOW ***
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
 
-// V35: MATRIX GLITCH CSS INJECTION
+// V35: MATRIX GLITCH CSS
 const GlitchStyles = () => (
   <style>
     {`
@@ -40,28 +41,67 @@ const GlitchStyles = () => (
   </style>
 );
 
+// V36: ADVANCED AUDIO SYNTHESIZER
 const playSound = (type) => {
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const oscillator = audioCtx.createOscillator();
-  const gainNode = audioCtx.createGain();
-  
-  if (type === 'ring') {
-    oscillator.type = 'square';
-    oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
-    oscillator.frequency.setValueAtTime(0, audioCtx.currentTime + 0.1);
-    oscillator.frequency.setValueAtTime(800, audioCtx.currentTime + 0.2);
-    gainNode.gain.value = 0.05;
-  } else {
-    oscillator.frequency.setValueAtTime(type === 'purge' ? 150 : 800, audioCtx.currentTime);
-    oscillator.type = 'sine';
-    gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+
+  const now = ctx.currentTime;
+
+  if (type === 'message') {
+    // HIGH-TECH CHIRP (For Text)
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(2000, now);
+    osc.frequency.exponentialRampToValueAtTime(500, now + 0.15);
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  } 
+  else if (type === 'call_audio') {
+    // DIGITAL RING (Double Pulse)
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(800, now);
+    // Pulse 1
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.linearRampToValueAtTime(0, now + 0.2);
+    // Pulse 2
+    gain.gain.setValueAtTime(0.1, now + 0.3);
+    gain.gain.linearRampToValueAtTime(0, now + 0.5);
+    
+    osc.start(now);
+    osc.stop(now + 0.6);
+  } 
+  else if (type === 'call_video') {
+    // SCI-FI SWEEP (Rising Alarm)
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(400, now);
+    osc.frequency.linearRampToValueAtTime(1000, now + 0.8);
+    gain.gain.setValueAtTime(0.05, now);
+    gain.gain.linearRampToValueAtTime(0, now + 0.8);
+    osc.start(now);
+    osc.stop(now + 0.8);
   }
-  
-  oscillator.connect(gainNode);
-  gainNode.connect(audioCtx.destination);
-  oscillator.start();
-  oscillator.stop(audioCtx.currentTime + 0.3);
+  else if (type === 'purge') {
+    // DELETION SOUND
+    osc.frequency.setValueAtTime(150, now);
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+    osc.start(now);
+    osc.stop(now + 0.3);
+  }
+  else {
+    // DEFAULT ERROR
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(100, now);
+    gain.gain.value = 0.1;
+    osc.start(now);
+    osc.stop(now + 0.2);
+  }
 };
 
 const getAvatar = (user) => {
@@ -71,10 +111,9 @@ const getAvatar = (user) => {
 };
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V35 (MATRIX TEXT)
+// 2. MAIN APP: UMBRA V36 (RINGTONES)
 // ---------------------------------------------------------
 function App() {
-  // STATE
   const [view, setView] = useState('LOGIN'); 
   const [mobileView, setMobileView] = useState('LIST'); 
   const [myProfile, setMyProfile] = useState(null); 
@@ -206,7 +245,6 @@ function App() {
       setSavingProfile(true);
       setSaveStatusText('UPLOADING ASSETS...');
       let updates = { name: editName, email: editEmail, location: editLocation };
-      
       if (editAvatar) {
           const avatarRef = ref(storage, `avatars/${myProfile.phone}_${Date.now()}`);
           await uploadBytes(avatarRef, editAvatar);
@@ -217,28 +255,23 @@ function App() {
           await uploadBytes(wallRef, editWallpaper);
           updates.wallpaper = await getDownloadURL(wallRef);
       }
-
       setSaveStatusText('UPDATING DATABASE...');
       await updateDoc(doc(db, "users", myProfile.phone), updates);
-
       const myNewAvatar = updates.avatar || myProfile.avatar || null;
       const myNewName = updates.name || myProfile.name;
       const friendsSnap = await getDocs(collection(db, "users", myProfile.phone, "friends"));
       const batch = writeBatch(db);
       let count = 0;
-
       friendsSnap.forEach((friendDoc) => {
           const friendPhone = friendDoc.id;
           const refInFriend = doc(db, "users", friendPhone, "friends", myProfile.phone);
           batch.set(refInFriend, { name: myNewName, avatar: myNewAvatar }, { merge: true });
           count++;
       });
-
       if (count > 0) {
           setSaveStatusText(`SYNCING ${count} FRIENDS...`);
           await batch.commit();
       }
-
       setMyProfile({ ...myProfile, ...updates });
       setSavingProfile(false);
       setSaveStatusText('SAVED!');
@@ -274,7 +307,7 @@ function App() {
     const qReq = query(collection(db, "friend_requests"), where("to", "==", myProfile.phone), where("status", "==", "pending"));
     const unsubReq = onSnapshot(qReq, (snap) => {
        setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-       if(!snap.empty) playSound('ping');
+       if(!snap.empty) playSound('message'); // V36: Sound on request
     });
     
     const qContacts = query(collection(db, "users", myProfile.phone, "friends"));
@@ -309,21 +342,8 @@ function App() {
   const acceptRequest = async (req) => {
     const friendDoc = await getDoc(doc(db, "users", req.from));
     const friendData = friendDoc.exists() ? friendDoc.data() : {};
-    
-    await setDoc(doc(db, "users", myProfile.phone, "friends", req.from), { 
-        phone: req.from, 
-        name: friendData.name || req.fromName,
-        avatar: friendData.avatar || null,
-        unread: 0 
-    });
-
-    await setDoc(doc(db, "users", req.from, "friends", myProfile.phone), { 
-        phone: myProfile.phone, 
-        name: myProfile.name,
-        avatar: myProfile.avatar || null,
-        unread: 0
-    });
-
+    await setDoc(doc(db, "users", myProfile.phone, "friends", req.from), { phone: req.from, name: friendData.name || req.fromName, avatar: friendData.avatar || null, unread: 0 });
+    await setDoc(doc(db, "users", req.from, "friends", myProfile.phone), { phone: myProfile.phone, name: myProfile.name, avatar: myProfile.avatar || null, unread: 0 });
     await deleteDoc(doc(db, "friend_requests", req.id));
   };
 
@@ -354,18 +374,24 @@ function App() {
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
     const q = query(collection(db, "messages"), where("channel", "==", chatID), limit(100));
     const unsub = onSnapshot(q, (snap) => {
-       let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-       
-       msgs.forEach(async (msg) => {
-           if (msg.sender !== myProfile.phone && !msg.readAt) {
-               const updates = { readAt: Date.now() };
-               if (msg.isBurn) {
-                   updates.burnAt = Date.now() + 60000; 
+       // V36: DETECT NEW MESSAGES FOR SOUND
+       snap.docChanges().forEach((change) => {
+           if (change.type === "added") {
+               const msg = change.doc.data();
+               if (msg.sender !== myProfile.phone && Date.now() - (msg.createdAt?.seconds * 1000) < 5000) {
+                   playSound('message'); // PLAY MESSAGE SOUND
                }
-               try { await updateDoc(doc(db, "messages", msg.id), updates); } catch(e){}
            }
        });
 
+       let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+       msgs.forEach(async (msg) => {
+           if (msg.sender !== myProfile.phone && !msg.readAt) {
+               const updates = { readAt: Date.now() };
+               if (msg.isBurn) { updates.burnAt = Date.now() + 60000; }
+               try { await updateDoc(doc(db, "messages", msg.id), updates); } catch(e){}
+           }
+       });
        msgs.sort((a, b) => (a.createdAt?.seconds || Date.now()) - (b.createdAt?.seconds || Date.now()));
        setMessages(msgs);
        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
@@ -376,25 +402,13 @@ function App() {
   const sendMessage = async () => {
     if (!input.trim() || !activeFriend) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
-    
-    let msgData = { 
-        text: input, 
-        sender: myProfile.phone, 
-        senderName: myProfile.name, 
-        channel: chatID, 
-        type: 'text', 
-        createdAt: serverTimestamp() 
-    };
-    
+    let msgData = { text: input, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, type: 'text', createdAt: serverTimestamp() };
     if (burnMode) { msgData.isBurn = true; }
-    
     await addDoc(collection(db, "messages"), msgData);
-    
     try {
         const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
         await updateDoc(friendRef, { unread: increment(1) });
     } catch(e) { console.log("Friend link broken"); }
-
     setInput('');
   };
 
@@ -410,9 +424,7 @@ function App() {
     if (file.type.startsWith('video/')) type = 'video_file';
     let msgData = { text: url, type: type, sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
     if (burnMode) { msgData.isBurn = true; } 
-    
     await addDoc(collection(db, "messages"), msgData);
-    
     try {
         const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
         await updateDoc(friendRef, { unread: increment(1) });
@@ -436,9 +448,7 @@ function App() {
         const chatID = getChatID(myProfile.phone, activeFriend.phone);
         let msgData = { text: url, type: 'audio', sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
         if (burnMode) { msgData.isBurn = true; } 
-        
         await addDoc(collection(db, "messages"), msgData);
-        
         try {
             const friendRef = doc(db, "users", activeFriend.phone, "friends", myProfile.phone);
             await updateDoc(friendRef, { unread: increment(1) });
@@ -537,7 +547,8 @@ function App() {
           const data = snap.data();
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
-              playSound('ring');
+              // V36: PLAY RINGTONE
+              playSound(data.mode === 'audio' ? 'call_audio' : 'call_video');
           }
           if (data && data.type === 'answer' && callActive && pc.current) await pc.current.setRemoteDescription(JSON.parse(data.sdp));
           if (!data && callActive) { setCallActive(false); if(localStream.current) localStream.current.getTracks().forEach(t => t.stop()); }
@@ -605,7 +616,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V35</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V36</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -660,7 +671,6 @@ function App() {
                           <div style={styles.contactName}>{c.name}</div>
                           <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
                       </div>
-                      
                       {c.unread > 0 ? (
                           <div style={{background:'red', color:'white', borderRadius:'50%', width:'20px', height:'20px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'bold', flexShrink:0}}>
                               {c.unread}
@@ -713,14 +723,10 @@ function App() {
                         return (
                            <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
                                <div style={{...(msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === myProfile.phone ? '#004400' : '#333')}}>
-                                   
-                                   {/* V35: APPLY MATRIX CLASS TO TEXT ONLY */}
                                    {msg.type === 'text' && <div className="matrix-text">{msg.text}</div>}
-                                   
                                    {msg.type === 'image' && <img src={msg.text} style={{maxWidth:'100%', borderRadius:'5px'}} alt="msg"/>}
                                    {msg.type === 'video_file' && <video src={msg.text} controls style={{maxWidth:'100%', borderRadius:'5px'}} />}
                                    {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
-                                   
                                    <div style={styles.msgFooter}>
                                        {msg.isBurn && !msg.burnAt ? (
                                            <span style={{color:'orange', fontSize:'9px'}}>PENDING READ</span>
