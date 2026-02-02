@@ -21,8 +21,11 @@ const DecryptedText = ({ text }) => {
   return <span>{display}</span>;
 };
 
-// NOW ACCEPTING 'theme' and 'toggleTheme' PROPS
+// 🛡️ SAFETY FIX: Default props ensure app never crashes if theme is missing
 export default function ChatRoom({ user, logout, theme, toggleTheme }) {
+  // FALLBACK THEME (The Safety Net)
+  const safeTheme = theme || { primary: '#00ff00', bg: '#050505', secondary: 'rgba(0, 255, 0, 0.1)' };
+
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -102,18 +105,18 @@ export default function ChatRoom({ user, logout, theme, toggleTheme }) {
   };
 
   return (
-    <div style={{...styles.container, background: theme.bg, color: theme.primary}}>
-      <div style={{...styles.header, background: theme.bg, borderBottom: `1px solid ${theme.primary}`}}>
+    <div style={{...styles.container, background: safeTheme.bg, color: safeTheme.primary}}>
+      <div style={{...styles.header, background: safeTheme.bg, borderBottom: `1px solid ${safeTheme.primary}`}}>
         <div style={styles.status}>
-            <span style={{...styles.dot, background: theme.primary, boxShadow: `0 0 5px ${theme.primary}`}}></span>
+            <span style={{...styles.dot, background: safeTheme.primary, boxShadow: `0 0 5px ${safeTheme.primary}`}}></span>
             <span>SECURE_UPLINK</span>
         </div>
         <div style={styles.headerControls}>
           {/* THEME BUTTON */}
-          <button onClick={toggleTheme} style={{...styles.iconBtn, color: theme.primary}}>🎨</button>
+          <button onClick={toggleTheme} style={{...styles.iconBtn, color: safeTheme.primary}}>🎨</button>
           
-          <button onClick={() => startCall(false)} style={{...styles.iconBtn, color: theme.primary}}>📞</button>
-          <button onClick={() => startCall(true)} style={{...styles.iconBtn, color: theme.primary}}>🎥</button>
+          <button onClick={() => startCall(false)} style={{...styles.iconBtn, color: safeTheme.primary}}>📞</button>
+          <button onClick={() => startCall(true)} style={{...styles.iconBtn, color: safeTheme.primary}}>🎥</button>
           <button onClick={logout} style={{...styles.logoutBtn, borderColor: 'red', color: 'red'}}>EXIT</button>
         </div>
       </div>
@@ -122,15 +125,15 @@ export default function ChatRoom({ user, logout, theme, toggleTheme }) {
         {messages.map((msg) => (
           <div key={msg.id} style={{...styles.messageRow, justifyContent: msg.sender === user.name ? 'flex-end' : 'flex-start'}}>
             <div style={msg.sender === user.name 
-              ? {...styles.myBubble, background: theme.secondary, borderColor: theme.primary} 
+              ? {...styles.myBubble, background: safeTheme.secondary, borderColor: safeTheme.primary} 
               : {...styles.otherBubble, borderColor: '#444'}
             }>
-              <div style={{...styles.senderName, color: theme.primary}}>{msg.sender.toUpperCase()}</div>
+              <div style={{...styles.senderName, color: safeTheme.primary}}>{msg.sender.toUpperCase()}</div>
               {msg.type === 'text' && <DecryptedText text={msg.text} />}
               {msg.type === 'image' && <img src={msg.text} alt="attachment" style={styles.media} />}
               {msg.type === 'audio' && <audio src={msg.text} controls style={styles.audio} />}
               {(msg.type === 'video_call' || msg.type === 'voice_call') && (
-                 <a href={msg.text} target="_blank" rel="noreferrer" style={{...styles.callLink, color: theme.primary, borderColor: theme.primary}}>
+                 <a href={msg.text} target="_blank" rel="noreferrer" style={{...styles.callLink, color: safeTheme.primary, borderColor: safeTheme.primary}}>
                    {msg.type === 'video_call' ? '🎥 JOIN VIDEO' : '📞 JOIN VOICE'}
                  </a>
               )}
@@ -141,19 +144,19 @@ export default function ChatRoom({ user, logout, theme, toggleTheme }) {
         <div ref={messagesEndRef} />
       </div>
 
-      <div style={{...styles.inputArea, background: theme.bg, borderTop: `1px solid ${theme.primary}`}}>
+      <div style={{...styles.inputArea, background: safeTheme.bg, borderTop: `1px solid ${safeTheme.primary}`}}>
         <input type="file" ref={fileInputRef} style={{display:'none'}} onChange={handleFileUpload} />
-        <button onClick={() => fileInputRef.current.click()} style={{...styles.attachBtn, color: theme.primary}}>📎</button>
-        <button onClick={toggleRecording} style={{...styles.attachBtn, color: isRecording ? 'red' : theme.primary}}>
+        <button onClick={() => fileInputRef.current.click()} style={{...styles.attachBtn, color: safeTheme.primary}}>📎</button>
+        <button onClick={toggleRecording} style={{...styles.attachBtn, color: isRecording ? 'red' : safeTheme.primary}}>
             {isRecording ? '⏹' : '🎤'}
         </button>
         <input 
-            style={{...styles.input, borderColor: theme.primary, color: theme.primary}} 
+            style={{...styles.input, borderColor: safeTheme.primary, color: safeTheme.primary}} 
             value={input} 
             onChange={(e) => setInput(e.target.value)} 
             placeholder="TRANSMIT..." 
         />
-        <button onClick={handleSend} style={{...styles.sendBtn, background: theme.primary}}>📤</button>
+        <button onClick={handleSend} style={{...styles.sendBtn, background: safeTheme.primary}}>📤</button>
       </div>
     </div>
   );
