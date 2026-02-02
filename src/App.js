@@ -30,14 +30,15 @@ const playSound = (type) => {
   oscillator.stop(audioCtx.currentTime + 0.3);
 };
 
-// V28: SMART AVATAR (Checks for custom image)
+// V28.1: CRASH-PROOF AVATAR
 const getAvatar = (user) => {
+    if (!user) return `https://api.dicebear.com/7.x/bottts/svg?seed=Unknown&backgroundColor=transparent`;
     if (user.avatar) return user.avatar;
     return `https://api.dicebear.com/7.x/bottts/svg?seed=${user.name || 'User'}&backgroundColor=transparent`;
 };
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V28 (PROFILE EDITOR)
+// 2. MAIN APP: UMBRA V28.1 (ROBUST PROFILE)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -57,7 +58,7 @@ function App() {
   const [addStatus, setAddStatus] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // V28: PROFILE EDIT STATE
+  // PROFILE EDIT STATE
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editLocation, setEditLocation] = useState('');
@@ -111,7 +112,7 @@ function App() {
             const userDocRef = doc(db, "users", phone);
             const userSnap = await getDoc(userDocRef);
             if (userSnap.exists() && userSnap.data().password === password) {
-               setMyProfile({ ...userSnap.data(), phone }); // Load all fields
+               setMyProfile({ ...userSnap.data(), phone });
                setView('APP');
             }
         } catch(e) {}
@@ -138,7 +139,6 @@ function App() {
     if (saveLogin) localStorage.setItem('umbra_creds', JSON.stringify({ phone: cleanPhone, password: inputPassword }));
     else localStorage.removeItem('umbra_creds');
     
-    // FETCH FULL PROFILE
     const fullProfile = (await getDoc(userDocRef)).data();
     setMyProfile({ ...fullProfile, phone: cleanPhone });
     setView('APP');
@@ -153,8 +153,8 @@ function App() {
     setActiveFriend(null);
   };
 
-  // V28: OPEN SETTINGS
   const openSettings = () => {
+      if (!myProfile) return;
       setEditName(myProfile.name || '');
       setEditEmail(myProfile.email || '');
       setEditLocation(myProfile.location || '');
@@ -163,19 +163,16 @@ function App() {
       setView('SETTINGS');
   };
 
-  // V28: SAVE PROFILE
   const saveProfile = async () => {
       setSavingProfile(true);
       let updates = { name: editName, email: editEmail, location: editLocation };
       
-      // Upload Avatar
       if (editAvatar) {
           const avatarRef = ref(storage, `avatars/${myProfile.phone}_${Date.now()}`);
           await uploadBytes(avatarRef, editAvatar);
           updates.avatar = await getDownloadURL(avatarRef);
       }
 
-      // Upload Wallpaper
       if (editWallpaper) {
           const wallRef = ref(storage, `wallpapers/${myProfile.phone}_${Date.now()}`);
           await uploadBytes(wallRef, editWallpaper);
@@ -188,6 +185,7 @@ function App() {
       setView('APP');
   };
 
+  // RECOVERY & DATA LISTENERS (Standard)
   const initRecovery = async () => {
       const cleanPhone = inputPhone.replace(/\D/g, '');
       if (cleanPhone.length < 5) { setLoginError('ENTER VALID PHONE'); return; }
@@ -212,7 +210,6 @@ function App() {
       setLoginError('');
   };
 
-  // DATA LISTENERS
   useEffect(() => {
     if (!myProfile) return;
     const qReq = query(collection(db, "friend_requests"), where("to", "==", myProfile.phone), where("status", "==", "pending"));
@@ -239,6 +236,7 @@ function App() {
     return () => clearInterval(interval);
   }, [messages, myProfile]);
 
+  // FRIENDSHIP & CHAT
   const sendFriendRequest = async () => {
     const targetPhone = friendPhone.replace(/\D/g, '');
     if (targetPhone === myProfile.phone) return setAddStatus("CANNOT ADD SELF");
@@ -441,7 +439,7 @@ function App() {
       );
   }
 
-  // V28: SETTINGS VIEW
+  // SETTINGS VIEW
   if (view === 'SETTINGS') {
       return (
         <div style={styles.fullCenter}>
@@ -480,7 +478,7 @@ function App() {
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V28</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V28.1</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -499,15 +497,20 @@ function App() {
   return (
     <div style={styles.container}>
       <div style={{...styles.sidebar, display: isMobile && mobileView === 'CHAT' ? 'none' : 'flex'}}>
-          <div style={styles.sideHeader}>
-             {/* V28: AVATAR DISPLAY IN HEADER */}
+          
+          {/* V28.1: CLICKABLE PROFILE HEADER */}
+          <div style={styles.sideHeader} onClick={openSettings} title="Click to Edit Profile">
              <img src={getAvatar(myProfile)} style={{width:'35px', height:'35px', borderRadius:'50%', border:'1px solid #00ff00', marginRight:'10px'}} alt="me"/>
-             <div style={{flex:1, minWidth:0}}><div style={styles.truncatedText}>{myProfile.name}</div><div style={{fontSize:'10px'}}>{myProfile.phone}</div></div>
+             <div style={{flex:1, minWidth:0, cursor:'pointer'}}>
+                 <div style={styles.truncatedText}>{myProfile.name}</div>
+                 <div style={{fontSize:'10px'}}>{myProfile.phone}</div>
+             </div>
              
-             {/* V28: SETTINGS ICON */}
-             <button onClick={openSettings} style={{...styles.iconBtnSmall, color:'#00ff00', marginRight:'5px'}}>⚙️</button>
-             <button onClick={handleLogout} style={{...styles.iconBtnSmall, color:'red', borderColor:'#333'}}>⏻</button>
+             {/* SETTINGS + LOGOUT ICONS */}
+             <button style={{...styles.iconBtnSmall, color:'#00ff00', marginRight:'5px'}}>⚙️</button>
+             <button onClick={(e) => { e.stopPropagation(); handleLogout(); }} style={{...styles.iconBtnSmall, color:'red', borderColor:'#333'}}>⏻</button>
           </div>
+
           <div style={styles.addSection}>
               <div style={{display:'flex', gap:'5px'}}>
                   <input style={styles.miniInput} placeholder="ADD PHONE #" value={friendPhone} onChange={e => setFriendPhone(e.target.value)} type="tel"/>
@@ -567,7 +570,6 @@ function App() {
                      <div style={{height: '50px', background: '#000', display:'flex', alignItems:'center', justifyContent:'center', color:'#00ff00', borderBottom:'1px solid #00ff00', fontSize:'12px'}}>AUDIO LINK ACTIVE</div>
                 )}
 
-                {/* V28: DYNAMIC WALLPAPER */}
                 <div style={{...styles.chatArea, backgroundImage: myProfile.wallpaper ? `linear-gradient(rgba(0,0,0,0.8), rgba(0,0,0,0.8)), url(${myProfile.wallpaper})` : styles.chatArea.backgroundImage, backgroundSize: 'cover' }}>
                     {messages.map(msg => {
                         let timeLeft = null;
@@ -613,7 +615,7 @@ const styles = {
   input: { display: 'block', width: '100%', boxSizing:'border-box', background: '#0a0a0a', border: '1px solid #333', color: '#00ff00', padding: '15px', fontSize: '16px', outline: 'none', fontFamily:'monospace', marginBottom:'15px' },
   btn: { background: '#00ff00', color: 'black', border: 'none', padding: '15px', width: '100%', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' },
   sidebar: { flex: '0 0 25%', minWidth: '250px', maxWidth: '350px', borderRight: '1px solid #1f1f1f', display: 'flex', flexDirection: 'column', background:'#0a0a0a', height:'100%' },
-  sideHeader: { padding: '10px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background:'#000' },
+  sideHeader: { padding: '10px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background:'#000', cursor:'pointer' },
   addSection: { padding: '10px', borderBottom: '1px solid #1f1f1f' },
   miniInput: { flex: 1, background: '#111', border: '1px solid #333', color: '#fff', padding: '8px', fontFamily: 'monospace', outline: 'none', fontSize: '12px' },
   tinyBtn: { background: '#00ff00', color:'black', border:'none', fontSize:'9px', padding:'3px 6px', cursor:'pointer' },
