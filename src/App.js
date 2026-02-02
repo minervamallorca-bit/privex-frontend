@@ -11,28 +11,36 @@ import {
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
-// 1. ASSETS & AUDIO ENGINE
+// 1. ASSETS & AUDIO ENGINE (V38: GLOBAL RESUME)
 // ---------------------------------------------------------
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
 
-// GLOBAL AUDIO CONTEXT (Lazy Load)
+// SINGLETON AUDIO CONTEXT
 let audioCtx = null;
 
-const initAudio = () => {
+const getAudioContext = () => {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  // BROWSER UNLOCK: Resume if suspended
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
   }
   return audioCtx;
 };
 
-// V37: LOUD AUDIO PATTERNS
+// GLOBAL UNLOCKER
+const resumeAudio = () => {
+  const ctx = getAudioContext();
+  if (ctx.state === 'suspended') {
+    ctx.resume().then(() => console.log("AUDIO SYSTEM: ONLINE"));
+  }
+};
+
+// V38: LOUD & RELIABLE SYNTH
 const playSound = (type) => {
-  const ctx = initAudio();
+  const ctx = getAudioContext();
+  
+  // Safety check: if suspended, try to resume, but might fail if no user gesture active
+  if (ctx.state === 'suspended') ctx.resume();
+
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   
@@ -44,7 +52,7 @@ const playSound = (type) => {
   if (type === 'message') {
     // 3 LOUD SQUARE BEEPS (2 Seconds)
     osc.type = 'square';
-    osc.frequency.setValueAtTime(880, now); // High Pitch (A5)
+    osc.frequency.setValueAtTime(880, now); // A5
 
     // Beep 1
     gain.gain.setValueAtTime(0.3, now);
@@ -62,7 +70,7 @@ const playSound = (type) => {
     osc.stop(now + 2.0);
   } 
   else if (type === 'call_audio') {
-    // LOUD PHONE RING
+    // DIGITAL RING
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(600, now);
     osc.frequency.linearRampToValueAtTime(800, now + 0.1);
@@ -70,7 +78,6 @@ const playSound = (type) => {
     gain.gain.setValueAtTime(0.2, now);
     gain.gain.linearRampToValueAtTime(0, now + 0.5);
     
-    // Double Ring
     gain.gain.setValueAtTime(0.2, now + 0.6);
     gain.gain.linearRampToValueAtTime(0, now + 1.1);
 
@@ -78,7 +85,7 @@ const playSound = (type) => {
     osc.stop(now + 1.2);
   } 
   else if (type === 'purge') {
-    // DELETION ZAP
+    // ZAP
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(200, now);
     osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
@@ -86,15 +93,6 @@ const playSound = (type) => {
     gain.gain.linearRampToValueAtTime(0, now + 0.3);
     osc.start(now);
     osc.stop(now + 0.3);
-  }
-  else {
-    // DEFAULT UNLOCK SOUND
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(440, now);
-    gain.gain.setValueAtTime(0.01, now); // Very quiet unlock
-    gain.gain.linearRampToValueAtTime(0, now + 0.1);
-    osc.start(now);
-    osc.stop(now + 0.1);
   }
 };
 
@@ -104,7 +102,7 @@ const getAvatar = (user) => {
     return `https://api.dicebear.com/7.x/bottts/svg?seed=${user.name || 'User'}&backgroundColor=transparent`;
 };
 
-// V35: MATRIX GLITCH CSS
+// CSS
 const GlitchStyles = () => (
   <style>
     {`
@@ -129,7 +127,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V37 (LOUD AUDIO)
+// 2. MAIN APP: UMBRA V38 (AUDIO NET)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -188,6 +186,16 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // V38: ACTIVATE AUDIO ON ANY CLICK
+  useEffect(() => {
+      window.addEventListener('click', resumeAudio);
+      window.addEventListener('keydown', resumeAudio);
+      return () => {
+          window.removeEventListener('click', resumeAudio);
+          window.removeEventListener('keydown', resumeAudio);
+      };
+  }, []);
+
   useEffect(() => {
       document.title = APP_TITLE;
       let link = document.querySelector("link[rel~='icon']");
@@ -220,10 +228,7 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
-    
-    // V37: UNLOCK AUDIO ON CLICK
-    playSound('unlock');
-
+    resumeAudio(); // V38 Force Resume
     const cleanPhone = inputPhone.replace(/\D/g, ''); 
     if (cleanPhone.length < 5 || !inputName.trim() || !inputPassword.trim()) {
         setLoginError('INVALID INPUTS'); return;
@@ -398,6 +403,7 @@ function App() {
        snap.docChanges().forEach((change) => {
            if (change.type === "added") {
                const msg = change.doc.data();
+               // V38 CHECK: ONLY PLAY IF NOT MY MSG AND NEW (<5s)
                if (msg.sender !== myProfile.phone && Date.now() - (msg.createdAt?.seconds * 1000) < 5000) {
                    playSound('message'); 
                }
@@ -567,7 +573,7 @@ function App() {
           const data = snap.data();
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
-              playSound(data.mode === 'audio' ? 'call_audio' : 'call_audio'); // Use loud ring for both
+              playSound('call_audio'); 
           }
           if (data && data.type === 'answer' && callActive && pc.current) await pc.current.setRemoteDescription(JSON.parse(data.sdp));
           if (!data && callActive) { setCallActive(false); if(localStream.current) localStream.current.getTracks().forEach(t => t.stop()); }
@@ -635,7 +641,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V37</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V38</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -690,7 +696,6 @@ function App() {
                           <div style={styles.contactName}>{c.name}</div>
                           <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
                       </div>
-                      
                       {c.unread > 0 ? (
                           <div style={{background:'red', color:'white', borderRadius:'50%', width:'20px', height:'20px', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'10px', fontWeight:'bold', flexShrink:0}}>
                               {c.unread}
