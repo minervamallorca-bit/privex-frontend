@@ -58,7 +58,7 @@ const playSound = (type) => {
     osc.start(now);
     osc.stop(now + 2.0);
   } 
-  else if (type === 'ringtone') { // V44: DEDICATED LOOP SOUND
+  else if (type === 'ringtone') { 
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(600, now);
     osc.frequency.linearRampToValueAtTime(800, now + 0.1);
@@ -110,7 +110,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V44 (INFINITE RING & VIDEO FIX)
+// 2. MAIN APP: UMBRA V45 (FULL DUPLEX)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -161,7 +161,7 @@ function App() {
   const wallpaperInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
-  const ringInterval = useRef(null); // V44: RING LOOP REF
+  const ringInterval = useRef(null); 
 
   const isInitialLoad = useRef(true);
 
@@ -515,7 +515,7 @@ function App() {
     await batch.commit();
   };
 
-  // V44: VIDEO FIX & LOOPING RING
+  // V45: ROBUST SIGNALING WITH ICE EXCHANGE
   const startCall = async (mode) => {
     resumeAudio();
     setCallActive(true); setCallStatus('DIALING...'); setIsVideoCall(mode === 'video');
@@ -526,22 +526,18 @@ function App() {
 
     pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
     
-    // V44: Get Stream FIRST
+    // GET STREAM AND ATTACH
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' ? { width: 640 } : false });
     localStream.current = stream;
-    
-    // Attach stream to video tag immediately
     if (localVideoRef.current && mode === 'video') localVideoRef.current.srcObject = stream;
-    
-    // Add tracks to PC
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
 
-    // ICE Handling
+    // ICE HANDLER
     pc.current.onicecandidate = (event) => {
       if (event.candidate) addDoc(offerCandidatesRef, event.candidate.toJSON());
     };
 
-    // Remote Stream Handling
+    // REMOTE STREAM HANDLER
     pc.current.ontrack = (event) => {
        if (remoteVideoRef.current) {
            remoteVideoRef.current.srcObject = event.streams[0];
@@ -553,7 +549,7 @@ function App() {
 
     await setDoc(callDocRef, { type: 'offer', sdp: JSON.stringify(offer), sender: myProfile.phone, mode: mode });
 
-    // Listen for Answer
+    // ANSWER LISTENER
     onSnapshot(callDocRef, (snap) => {
        const data = snap.data();
        if (!pc.current.currentRemoteDescription && data?.sdp && data.type === 'answer') {
@@ -563,12 +559,12 @@ function App() {
        }
     });
 
-    // Listen for Remote ICE
+    // CANDIDATE LISTENER
     onSnapshot(answerCandidatesRef, (snap) => {
        snap.docChanges().forEach((change) => {
            if (change.type === 'added') {
                const candidate = new RTCIceCandidate(change.doc.data());
-               pc.current.addIceCandidate(candidate);
+               pc.current.addIceCandidate(candidate).catch(e => console.log(e));
            }
        });
     });
@@ -576,7 +572,6 @@ function App() {
 
   const answerCall = async () => {
     resumeAudio();
-    // V44: STOP RINGING
     if (ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
     
     setCallActive(true);
@@ -613,37 +608,42 @@ function App() {
     await updateDoc(callDocRef, { type: 'answer', sdp: JSON.stringify(answer) });
     setCallStatus('CONNECTED');
 
+    // OFFER CANDIDATES LISTENER
     onSnapshot(offerCandidatesRef, (snap) => {
        snap.docChanges().forEach((change) => {
            if (change.type === 'added') {
                const candidate = new RTCIceCandidate(change.doc.data());
-               pc.current.addIceCandidate(candidate);
+               pc.current.addIceCandidate(candidate).catch(e => console.log(e));
            }
        });
     });
   };
 
   const endCall = async () => {
-     // Stop ringing if active
      if (ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
      
      const chatID = getChatID(myProfile.phone, activeFriend.phone);
+     
+     // V45: UNIVERSAL KILL - DELETE DOCUMENT
      try { await deleteDoc(doc(db, "calls", chatID)); } catch(e) {}
+     
+     // Cleanup Local
      if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
-     pc.current?.close();
+     if(pc.current) pc.current.close();
      setCallActive(false);
   };
 
-  // V44: LISTENER FOR INCOMING (WITH LOOP)
+  // CALL MONITOR
   useEffect(() => {
       if (!activeFriend) return;
       const chatID = getChatID(myProfile.phone, activeFriend.phone);
       const unsub = onSnapshot(doc(db, "calls", chatID), async (snap) => {
           const data = snap.data();
+          
+          // INCOMING CALL
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
               
-              // START INFINITE LOOP
               if (!ringInterval.current) {
                   playSound('ringtone');
                   ringInterval.current = setInterval(() => {
@@ -651,11 +651,13 @@ function App() {
                   }, 2500);
               }
           }
+          
+          // CALL ENDED (DOCUMENT DELETED)
           if (!data && callActive) { 
-              // CALL ENDED REMOTELY
               if (ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
+              if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
+              if(pc.current) pc.current.close();
               setCallActive(false); 
-              if(localStream.current) localStream.current.getTracks().forEach(t => t.stop()); 
           }
       });
       return () => {
@@ -724,7 +726,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V44</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V45</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -736,7 +738,6 @@ function App() {
               <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
               <div style={{marginTop:'15px', cursor:'pointer', fontSize:'10px', color:'#555', textDecoration:'underline'}} onClick={() => setView('RECOVERY')}>LOST ACCESS?</div>
               
-              {/* V41: INTEGRATED SIGNATURE */}
               <div style={{marginTop:'30px', fontSize:'10.5px', fontWeight:'bold', color:'#00ff00', fontFamily:'monospace', borderTop:'1px solid #333', paddingTop:'15px'}}>
                   {COPYRIGHT_TEXT}
               </div>
@@ -796,7 +797,6 @@ function App() {
               ))}
           </div>
           
-          {/* V41: INTEGRATED SIGNATURE (SIDEBAR) */}
           <div style={{padding:'15px', fontSize:'10.5px', fontWeight:'bold', color:'#00ff00', fontFamily:'monospace', textAlign:'center', borderTop:'1px solid #1f1f1f', background:'#0a0a0a'}}>
               {COPYRIGHT_TEXT}
           </div>
