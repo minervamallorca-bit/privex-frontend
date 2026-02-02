@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from './firebase'; 
-import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc, getDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, limit, setDoc, doc, getDoc, deleteDoc, updateDoc, writeBatch, getDocs, where } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // ---------------------------------------------------------
@@ -46,7 +46,7 @@ const playSound = (type) => {
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION: UMBRA V18.2 (BUTTON FIX)
+// 2. MAIN APPLICATION: UMBRA V19 (THE CLEANER)
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -86,7 +86,7 @@ function App() {
     ]
   };
 
-  // --- CLEANUP ---
+  // --- CLEANUP TIMER ---
   useEffect(() => {
     const interval = setInterval(() => {
       setTime(Date.now()); 
@@ -99,7 +99,7 @@ function App() {
     return () => clearInterval(interval);
   }, [messages, user]);
 
-  // --- MESSAGES ---
+  // --- MESSAGES LISTENER ---
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "messages"), orderBy("createdAt", "asc"), limit(100));
@@ -119,7 +119,7 @@ function App() {
     return () => unsubscribe();
   }, [user, messages.length]);
 
-  // --- TYPING ---
+  // --- TYPING LISTENER ---
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "active_typing"));
@@ -135,7 +135,7 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // --- SIGNALING ---
+  // --- GHOST WIRE SIGNALING ---
   useEffect(() => {
     if (!user) return;
     const callDocRef = doc(db, "calls", user.channel);
@@ -253,6 +253,25 @@ function App() {
     }
   };
 
+  // --- V19: WIPE CHANNEL ---
+  const wipeChannel = async () => {
+    if (!window.confirm("CONFIRM: DELETE ALL HISTORY?")) return;
+    playSound('purge');
+    
+    // Query all messages in this channel
+    const q = query(collection(db, "messages"), where("channel", "==", user.channel));
+    const snapshot = await getDocs(q);
+    
+    const batch = writeBatch(db);
+    snapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    
+    await batch.commit();
+    setStatus("HISTORY PURGED");
+    setTimeout(() => setStatus("SECURE"), 3000);
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     if (!loginName.trim()) return;
@@ -265,7 +284,7 @@ function App() {
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// ALIGNMENT FIX V18.2</div>
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// CLEANER PROTOCOL V19.0</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -291,6 +310,9 @@ function App() {
         </div>
         
         <div style={{display:'flex', gap:'5px', alignItems:'center'}}>
+           {/* WIPE BUTTON (V19) */}
+           <button onClick={wipeChannel} style={{...styles.iconBtn, color: '#FF0000', borderColor: '#333'}}>🗑️</button>
+
            <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>
              🔥
            </button>
@@ -301,7 +323,7 @@ function App() {
         </div>
       </div>
 
-      {/* GHOST WIRE VIDEO FEED */}
+      {/* VIDEO */}
       {callActive && (
         <div style={{height: '35%', borderBottom: '1px solid #00ff00', background: '#000', position:'relative', display:'flex'}}>
             <video ref={remoteVideoRef} autoPlay playsInline style={{width:'100%', height:'100%', objectFit:'cover'}} />
@@ -311,7 +333,7 @@ function App() {
         </div>
       )}
 
-      {/* CHAT AREA */}
+      {/* CHAT */}
       <div style={styles.chatArea}>
         {messages.map(msg => {
             let timeLeft = null;
@@ -334,88 +356,31 @@ function App() {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* INPUT */}
       <div style={styles.inputArea}>
         <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload} />
         <button onClick={() => fileInputRef.current.click()} style={styles.iconBtn}>📎</button>
         <button onClick={toggleRecording} style={{...styles.iconBtn, color: isRecording ? 'red' : '#00ff00', borderColor: isRecording ? 'red' : '#00ff00'}}>{isRecording ? '⏹' : '🎤'}</button>
         <input value={input} onChange={handleInputChange} placeholder="MESSAGE..." style={styles.inputBar} onKeyPress={(e) => e.key === 'Enter' && handleSend()} />
-        {/* FIXED: SEND BUTTON NOW HAS SAME HEIGHT AND ALIGNMENT */}
         <button onClick={handleSend} style={styles.sendBtn}>SEND</button>
       </div>
     </div>
   );
 }
 
-// --- FIXED STYLES ---
 const styles = {
   container: { height: '100dvh', width: '100vw', background: '#080808', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
   box: { margin: 'auto', border: '1px solid #00ff00', padding: '30px', width:'85%', maxWidth:'400px', textAlign: 'center', background: '#000' },
   input: { display: 'block', width: '100%', boxSizing:'border-box', background: '#0a0a0a', border: '1px solid #333', color: '#00ff00', padding: '15px', fontSize: '16px', outline: 'none', fontFamily:'monospace', marginBottom:'15px' },
   btn: { background: '#00ff00', color: 'black', border: 'none', padding: '15px', width: '100%', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' },
-  
   header: { paddingTop: 'calc(10px + env(safe-area-inset-top))', paddingBottom: '10px', paddingLeft: '15px', paddingRight: '15px', background: '#0a0a0a', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 },
-  
   chatArea: { flex: 1, overflowY: 'auto', padding: '15px', backgroundImage: 'linear-gradient(rgba(0,0,0,0.95),rgba(0,0,0,0.95)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")', WebkitOverflowScrolling: 'touch' },
   myMsg: { background: 'rgba(0, 50, 0, 0.3)', border: '1px solid #004400', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#e0ffe0', wordWrap: 'break-word' },
   otherMsg: { background: '#111', border: '1px solid #333', padding: '10px', borderRadius: '2px', maxWidth: '85%', color: '#ccc', wordWrap: 'break-word' },
-  
-  inputArea: { 
-    paddingTop: '10px', 
-    paddingBottom: 'calc(10px + env(safe-area-inset-bottom))', 
-    paddingLeft: '10px', 
-    paddingRight: '10px', 
-    background: '#0a0a0a', 
-    borderTop: '1px solid #1f1f1f', 
-    display: 'flex', 
-    gap: '8px', 
-    alignItems: 'center', 
-    flexShrink: 0 
-  },
-  
-  // Height Locked to 44px
-  inputBar: { 
-    flex: 1, 
-    background: '#000', 
-    border: '1px solid #333', 
-    color: '#fff', 
-    padding: '0 12px', // Horizontal padding only
-    height: '44px', // FIXED HEIGHT
-    lineHeight: '44px', // Vertically center text
-    fontFamily: 'monospace', 
-    outline: 'none', 
-    borderRadius: '2px', 
-    minWidth: 0 
-  },
-  
-  iconBtn: { 
-    background: 'black', 
-    border: '1px solid #333', 
-    borderRadius: '2px', 
-    width: '44px', // MATCH HEIGHT
-    height: '44px', // MATCH HEIGHT
-    minWidth: '44px', 
-    fontSize: '18px', 
-    cursor: 'pointer', 
-    color: '#00ff00', 
-    display: 'flex', 
-    alignItems: 'center', 
-    justifyContent: 'center', 
-    flexShrink: 0 
-  },
-
-  // New Specific Style for Send Button
-  sendBtn: {
-    background: '#00ff00', 
-    color: 'black', 
-    border: 'none', 
-    padding: '0 15px', 
-    height: '44px', // MATCH HEIGHT
-    fontWeight: 'bold', 
-    cursor: 'pointer', 
-    fontSize: '14px', 
-    borderRadius: '2px',
-    flexShrink: 0
-  }
+  inputArea: { paddingTop: '10px', paddingBottom: 'calc(10px + env(safe-area-inset-bottom))', paddingLeft: '10px', paddingRight: '10px', background: '#0a0a0a', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 },
+  inputBar: { flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '0 12px', height: '44px', lineHeight: '44px', fontFamily: 'monospace', outline: 'none', borderRadius: '2px', minWidth: 0 },
+  iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '44px', height: '44px', minWidth: '44px', fontSize: '18px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  sendBtn: { background: '#00ff00', color: 'black', border: 'none', padding: '0 15px', height: '44px', fontWeight: 'bold', cursor: 'pointer', fontSize: '14px', borderRadius: '2px', flexShrink: 0 }
 };
 
 export default App;
