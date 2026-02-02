@@ -31,3 +31,4 @@ self.addEventListener('fetch', (event) => {
       .catch(() => caches.match(event.request))
   );
 });
+// V3.1 Update Force
