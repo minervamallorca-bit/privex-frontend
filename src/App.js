@@ -27,17 +27,17 @@ const playSound = (type) => {
   oscillator.connect(gainNode);
   gainNode.connect(audioCtx.destination);
   oscillator.start();
-  oscillator.stop(audioCtx.currentTime + 0.3);
+  oscillator.stop(audioCtx.currentTime + (type === 'purge' ? 0.5 : 0.3));
 };
 
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APP
+// 2. MAIN APP: UMBRA V25.1 (SORTING FIX)
 // ---------------------------------------------------------
 function App() {
   // STATE
-  const [view, setView] = useState('LOGIN'); // LOGIN, RECOVERY, APP
+  const [view, setView] = useState('LOGIN'); 
   const [mobileView, setMobileView] = useState('LIST'); 
   const [myProfile, setMyProfile] = useState(null); 
   const [activeFriend, setActiveFriend] = useState(null); 
@@ -53,8 +53,8 @@ function App() {
   const [addStatus, setAddStatus] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // V25: RECOVERY STATE
-  const [recoveryStep, setRecoveryStep] = useState(1); // 1: Phone, 2: Code+NewPass
+  // RECOVERY
+  const [recoveryStep, setRecoveryStep] = useState(1);
   const [recoveryCode, setRecoveryCode] = useState('');
   const [inputCode, setInputCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -80,7 +80,6 @@ function App() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
 
-  // RESIZE LISTENER
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
@@ -101,7 +100,7 @@ function App() {
                setMyProfile({ phone: phone, name: userSnap.data().name });
                setView('APP');
             }
-        } catch(e) { console.error(e); }
+        } catch(e) {}
       };
       autoLogin();
     }
@@ -138,35 +137,23 @@ function App() {
     setActiveFriend(null);
   };
 
-  // V25: RECOVERY LOGIC
   const initRecovery = async () => {
       const cleanPhone = inputPhone.replace(/\D/g, '');
       if (cleanPhone.length < 5) { setLoginError('ENTER VALID PHONE'); return; }
-      
       const userDocRef = doc(db, "users", cleanPhone);
       const userSnap = await getDoc(userDocRef);
-      
-      if (!userSnap.exists()) {
-          setLoginError('USER NOT FOUND');
-          return;
-      }
-
-      // GENERATE CODE (Simulation)
+      if (!userSnap.exists()) { setLoginError('USER NOT FOUND'); return; }
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       setRecoveryCode(code);
       setRecoveryStep(2);
-      
-      // SIMULATE SMS
-      alert(`[UMBRA NETWORK]\n\nRECOVERY CODE: ${code}\n\n(This is a simulation. In production, this would be an SMS.)`);
+      alert(`[UMBRA NETWORK]\n\nRECOVERY CODE: ${code}\n\n(Simulation)`);
   };
 
   const completeRecovery = async () => {
       if (inputCode !== recoveryCode) { setLoginError('INVALID CODE'); return; }
       if (!newPassword.trim()) { setLoginError('ENTER NEW PASSWORD'); return; }
-
       const cleanPhone = inputPhone.replace(/\D/g, '');
       await updateDoc(doc(db, "users", cleanPhone), { password: newPassword });
-      
       alert("PASSWORD UPDATED. PLEASE LOGIN.");
       setView('LOGIN');
       setRecoveryStep(1);
@@ -201,7 +188,6 @@ function App() {
     return () => clearInterval(interval);
   }, [messages, myProfile]);
 
-  // FRIENDSHIP
   const sendFriendRequest = async () => {
     const targetPhone = friendPhone.replace(/\D/g, '');
     if (targetPhone === myProfile.phone) return setAddStatus("CANNOT ADD SELF");
@@ -218,18 +204,32 @@ function App() {
     await deleteDoc(doc(db, "friend_requests", req.id));
   };
 
-  // CHAT
   const getChatID = (phoneA, phoneB) => parseInt(phoneA) < parseInt(phoneB) ? `${phoneA}_${phoneB}` : `${phoneB}_${phoneA}`;
   
   const selectFriend = (friend) => { setActiveFriend(friend); if (isMobile) setMobileView('CHAT'); };
   const goBack = () => { setMobileView('LIST'); if (!isMobile) setActiveFriend(null); };
 
+  // --- V25.1 FIX: CLIENT SIDE SORTING ---
+  // We removed 'orderBy' from the Firestore query to avoid Index errors.
+  // We sort the array in JavaScript instead.
   useEffect(() => {
     if (!activeFriend || !myProfile) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
-    const q = query(collection(db, "messages"), where("channel", "==", chatID), orderBy("createdAt", "asc"), limit(50));
+    
+    // REMOVED 'orderBy' to fix missing index issue
+    const q = query(collection(db, "messages"), where("channel", "==", chatID), limit(100));
+    
     const unsub = onSnapshot(q, (snap) => {
-       setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+       let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+       
+       // SORT CLIENT SIDE
+       msgs.sort((a, b) => {
+           const timeA = a.createdAt?.seconds || Date.now();
+           const timeB = b.createdAt?.seconds || Date.now();
+           return timeA - timeB;
+       });
+
+       setMessages(msgs);
        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
     });
     return () => unsub();
@@ -291,7 +291,6 @@ function App() {
     await batch.commit();
   };
 
-  // CALL
   const startCall = async (mode) => {
     setCallActive(true); setCallStatus('DIALING...'); setIsVideoCall(mode === 'video');
     const constraints = { audio: true, video: mode === 'video' ? { width: 640 } : false };
@@ -351,14 +350,12 @@ function App() {
       return () => unsub();
   }, [activeFriend, callActive]);
 
-  // V25: RECOVERY VIEW
   if (view === 'RECOVERY') {
       return (
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: 'orange', fontSize: '32px', marginBottom:'20px'}}>RECOVERY</h1>
               <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>STEP {recoveryStep} OF 2</div>
-              
               {recoveryStep === 1 ? (
                   <>
                     <input style={styles.input} placeholder="CONFIRM PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
@@ -373,20 +370,18 @@ function App() {
                     <button style={styles.btn} onClick={completeRecovery}>RESET & UNLOCK</button>
                   </>
               )}
-              
               <button style={{...styles.btn, background:'transparent', border:'1px solid #333', color:'#888', marginTop:'10px'}} onClick={() => { setView('LOGIN'); setRecoveryStep(1); setLoginError(''); }}>CANCEL</button>
            </div>
         </div>
       );
   }
 
-  // LOGIN RENDER
   if (view === 'LOGIN') {
      return (
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V25</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V25.1</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -396,21 +391,14 @@ function App() {
               </div>
               {loginError && <div style={{color:'red', fontSize:'12px', marginBottom:'10px'}}>{loginError}</div>}
               <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
-              
-              {/* V25: LOST ACCESS BUTTON */}
-              <div style={{marginTop:'15px', cursor:'pointer', fontSize:'10px', color:'#555', textDecoration:'underline'}} onClick={() => setView('RECOVERY')}>
-                  LOST ACCESS?
-              </div>
+              <div style={{marginTop:'15px', cursor:'pointer', fontSize:'10px', color:'#555', textDecoration:'underline'}} onClick={() => setView('RECOVERY')}>LOST ACCESS?</div>
            </div>
         </div>
      );
   }
 
-  // APP RENDER
   return (
     <div style={styles.container}>
-      
-      {/* LEFT SIDEBAR */}
       <div style={{...styles.sidebar, display: isMobile && mobileView === 'CHAT' ? 'none' : 'flex'}}>
           <div style={styles.sideHeader}>
              <div style={{flex:1}}><div style={{fontWeight:'bold'}}>{myProfile.name}</div><div style={{fontSize:'10px'}}>{myProfile.phone}</div></div>
@@ -445,7 +433,6 @@ function App() {
           </div>
       </div>
 
-      {/* RIGHT MAIN */}
       <div style={{...styles.main, display: isMobile && mobileView === 'LIST' ? 'none' : 'flex'}}>
           {activeFriend ? (
               <div style={styles.chatContainer}>
@@ -509,17 +496,12 @@ function App() {
   );
 }
 
-// ---------------------------------------------------------
-// STYLES (HARD LOCKED)
-// ---------------------------------------------------------
 const styles = {
   container: { height: '100%', position: 'fixed', top: 0, left: 0, width: '100%', background: '#080808', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex' },
-  
   fullCenter: { height: '100vh', width: '100vw', display:'flex', alignItems:'center', justifyContent:'center', background:'#080808' },
   loginBox: { border: '1px solid #00ff00', padding: '30px', width:'85%', maxWidth:'350px', textAlign: 'center', background: '#000' },
   input: { display: 'block', width: '100%', boxSizing:'border-box', background: '#0a0a0a', border: '1px solid #333', color: '#00ff00', padding: '15px', fontSize: '16px', outline: 'none', fontFamily:'monospace', marginBottom:'15px' },
   btn: { background: '#00ff00', color: 'black', border: 'none', padding: '15px', width: '100%', fontWeight: 'bold', cursor: 'pointer', fontSize: '16px' },
-
   sidebar: { flex: '0 0 25%', minWidth: '250px', maxWidth: '350px', borderRight: '1px solid #1f1f1f', display: 'flex', flexDirection: 'column', background:'#0a0a0a', height:'100%' },
   sideHeader: { padding: '10px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background:'#000' },
   addSection: { padding: '10px', borderBottom: '1px solid #1f1f1f' },
@@ -529,20 +511,11 @@ const styles = {
   avatar: { width:'35px', height:'35px', borderRadius:'50%', border:'1px solid #00ff00', flexShrink: 0 },
   truncatedText: { fontWeight:'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
   contactName: { fontWeight:'bold', fontSize:'14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-
   main: { flex: 1, display: 'flex', flexDirection: 'column', background:'#050505', minWidth: 0, position: 'relative', height: '100%' },
-  
-  // CHAT FLEXBOX FIX
   chatContainer: { display: 'flex', flexDirection: 'column', height: '100%', width: '100%' },
-  
   chatHeader: { padding: '10px', borderBottom: '1px solid #1f1f1f', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background:'#0a0a0a', flexShrink: 0 },
-  
-  // CHAT AREA GROWS TO FILL SPACE
   chatArea: { flex: 1, overflowY: 'auto', padding: '15px', backgroundImage: 'linear-gradient(rgba(0,0,0,0.95),rgba(0,0,0,0.95)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' },
-  
-  // INPUT AREA LOCKED TO BOTTOM
   inputArea: { padding: '10px', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '8px', alignItems: 'center', background:'#0a0a0a', flexShrink: 0 },
-  
   inputBar: { flex: 1, background: '#000', border: '1px solid #333', color: '#fff', padding: '0 12px', height: '44px', lineHeight: '44px', fontFamily: 'monospace', outline: 'none', borderRadius: '2px', minWidth: 0 },
   iconBtn: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '44px', height: '44px', minWidth: '44px', fontSize: '18px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   iconBtnSmall: { background: 'black', border: '1px solid #333', borderRadius: '2px', width: '35px', height: '35px', fontSize: '16px', cursor: 'pointer', color: '#00ff00', display: 'flex', alignItems: 'center', justifyContent: 'center' },
