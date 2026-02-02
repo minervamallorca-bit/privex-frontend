@@ -33,7 +33,7 @@ const playSound = (type) => {
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V25.1 (SORTING FIX)
+// 2. MAIN APP: UMBRA V26 (VIDEO FILES)
 // ---------------------------------------------------------
 function App() {
   // STATE
@@ -146,7 +146,7 @@ function App() {
       const code = Math.floor(100000 + Math.random() * 900000).toString();
       setRecoveryCode(code);
       setRecoveryStep(2);
-      alert(`[UMBRA NETWORK]\n\nRECOVERY CODE: ${code}\n\n(Simulation)`);
+      alert(`[UMBRA NETWORK]\n\nRECOVERY CODE: ${code}`);
   };
 
   const completeRecovery = async () => {
@@ -209,26 +209,18 @@ function App() {
   const selectFriend = (friend) => { setActiveFriend(friend); if (isMobile) setMobileView('CHAT'); };
   const goBack = () => { setMobileView('LIST'); if (!isMobile) setActiveFriend(null); };
 
-  // --- V25.1 FIX: CLIENT SIDE SORTING ---
-  // We removed 'orderBy' from the Firestore query to avoid Index errors.
-  // We sort the array in JavaScript instead.
+  // CLIENT SIDE SORTING
   useEffect(() => {
     if (!activeFriend || !myProfile) return;
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
-    
-    // REMOVED 'orderBy' to fix missing index issue
     const q = query(collection(db, "messages"), where("channel", "==", chatID), limit(100));
-    
     const unsub = onSnapshot(q, (snap) => {
        let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-       
-       // SORT CLIENT SIDE
        msgs.sort((a, b) => {
            const timeA = a.createdAt?.seconds || Date.now();
            const timeB = b.createdAt?.seconds || Date.now();
            return timeA - timeB;
        });
-
        setMessages(msgs);
        setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'auto' }), 100);
     });
@@ -244,6 +236,7 @@ function App() {
     setInput('');
   };
 
+  // V26: HANDLE VIDEO FILES
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file || !activeFriend) return;
@@ -251,7 +244,20 @@ function App() {
     await uploadBytes(fileRef, file);
     const url = await getDownloadURL(fileRef);
     const chatID = getChatID(myProfile.phone, activeFriend.phone);
-    let msgData = { text: url, type: file.type.startsWith('image/') ? 'image' : 'document', sender: myProfile.phone, senderName: myProfile.name, channel: chatID, createdAt: serverTimestamp() };
+    
+    // DETERMINE FILE TYPE
+    let type = 'document';
+    if (file.type.startsWith('image/')) type = 'image';
+    if (file.type.startsWith('video/')) type = 'video_file'; // V26 Added
+
+    let msgData = { 
+        text: url, 
+        type: type, 
+        sender: myProfile.phone, 
+        senderName: myProfile.name, 
+        channel: chatID, 
+        createdAt: serverTimestamp() 
+    };
     if (burnMode) { msgData.burnAt = Date.now() + 60000; msgData.isBurn = true; }
     await addDoc(collection(db, "messages"), msgData);
   };
@@ -381,7 +387,7 @@ function App() {
         <div style={styles.fullCenter}>
            <div style={styles.loginBox}>
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V25.1</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V26</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -470,8 +476,17 @@ function App() {
                         return (
                            <div key={msg.id} style={{display:'flex', justifyContent: msg.sender === myProfile.phone ? 'flex-end' : 'flex-start', marginBottom:'10px'}}>
                                <div style={{...(msg.sender === myProfile.phone ? styles.myMsg : styles.otherMsg), borderColor: timeLeft ? 'orange' : (msg.sender === myProfile.phone ? '#004400' : '#333')}}>
-                                   {msg.type === 'image' ? <img src={msg.text} style={{maxWidth:'100%'}} alt="msg"/> : msg.text}
-                                   {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'150px', filter: 'invert(1)'}} />}
+                                   {msg.type === 'text' && msg.text}
+                                   
+                                   {msg.type === 'image' && <img src={msg.text} style={{maxWidth:'100%', borderRadius:'5px'}} alt="msg"/>}
+                                   
+                                   {msg.type === 'audio' && <audio src={msg.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
+                                   
+                                   {/* V26: VIDEO FILE RENDERER */}
+                                   {msg.type === 'video_file' && (
+                                       <video src={msg.text} controls style={{maxWidth:'100%', borderRadius:'5px'}} />
+                                   )}
+
                                    {timeLeft !== null && <div style={{fontSize:'8px', color:'orange', marginTop:'5px'}}>🔥 {timeLeft}s</div>}
                                </div>
                            </div>
