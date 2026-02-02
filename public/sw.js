@@ -1,32 +1,33 @@
-const CACHE_NAME = 'privex-cache-v1';
-const urlsToCache = ['/', '/index.html', '/logo.png'];
+/* Service Worker for Privex V3 */
+const CACHE_NAME = 'privex-v3-dynamic';
+const assets = ['/', '/index.html', '/manifest.json'];
 
-// Install the service worker and cache basic files
+// 1. INSTALL: Cache core files immediately
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
-  );
-});
-
-// Required for Chrome's "Install" icon to show up
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request).then((response) => {
-      return response || fetch(event.request);
-    })
-  );
-});/* Service Worker for Privex */
-const CACHE_NAME = 'privex-v1';
-const assets = ['/', '/index.html', '/manifest.json', '/logo.png'];
-
-self.addEventListener('install', (event) => {
+  self.skipWaiting(); // Force this new worker to take over immediately
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(assets))
   );
 });
 
+// 2. ACTIVATE: Delete old caches to force update
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => {
+      return Promise.all(
+        keys.map((key) => {
+          if (key !== CACHE_NAME) return caches.delete(key);
+        })
+      );
+    })
+  );
+  self.clients.claim(); // Take control of all open clients instantly
+});
+
+// 3. FETCH: Network First, then Cache (Ensures you always get the latest update)
 self.addEventListener('fetch', (event) => {
   event.respondWith(
-    caches.match(event.request).then((res) => res || fetch(event.request))
+    fetch(event.request)
+      .catch(() => caches.match(event.request))
   );
 });
