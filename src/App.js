@@ -46,7 +46,7 @@ const playSound = (type) => {
 const getAvatar = (name) => `https://api.dicebear.com/7.x/bottts/svg?seed=${name}&backgroundColor=transparent`;
 
 // ---------------------------------------------------------
-// 2. MAIN APPLICATION: UMBRA V19.2 (SYNTAX FIX)
+// 2. MAIN APPLICATION: UMBRA V20 (IDENTITY TOGGLE)
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -58,6 +58,7 @@ function App() {
   const [status, setStatus] = useState('SECURE'); 
   
   const [burnMode, setBurnMode] = useState(false); 
+  const [showIdentity, setShowIdentity] = useState(false); // V20: TOGGLE STATE
   const [time, setTime] = useState(Date.now()); 
 
   const [loginName, setLoginName] = useState('');
@@ -145,8 +146,7 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // --- V19.2: VIDEO STREAM SYNC ---
-  // This replaces the "double ref" error. It safely connects the stream to the video tag.
+  // --- VIDEO STREAM SYNC ---
   useEffect(() => {
     if (callActive && localStream && localVideoRef.current) {
         localVideoRef.current.srcObject = localStream;
@@ -321,7 +321,7 @@ function App() {
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// UPLINK PROTOCOL V19.2</div>
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// IDENTITY PROTOCOL V20.0</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -341,12 +341,23 @@ function App() {
       <div style={styles.header}>
         <div style={{flex: 1, minWidth: 0, paddingRight: '10px'}}>
           <span style={{fontWeight:'bold', display:'block', letterSpacing:'1px', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
-             {user.channel}
+             {/* V20: IDENTITY TOGGLE LOGIC */}
+             {showIdentity ? `ID: ${user.name.toUpperCase()}` : user.channel}
           </span>
-          <span style={{fontSize:'10px', color: '#00ff00', display: 'block'}}>{callStatus}</span>
+          <span style={{fontSize:'10px', color: '#00ff00', display: 'block'}}>
+             {showIdentity ? 'UMBRA AGENT' : callStatus}
+          </span>
         </div>
         
         <div style={{display:'flex', gap:'5px', alignItems:'center'}}>
+           {/* V20: IDENTITY BUTTON */}
+           <button 
+             onClick={() => setShowIdentity(!showIdentity)} 
+             style={{...styles.iconBtn, color: showIdentity ? '#00ff00' : '#444', borderColor: showIdentity ? '#00ff00' : '#333'}}
+           >
+             👤
+           </button>
+
            <button onClick={wipeChannel} style={{...styles.iconBtn, color: '#FF0000', borderColor: '#333'}}>🗑️</button>
            <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}>🔥</button>
            {!callActive && <button onClick={startGhostWire} style={{...styles.iconBtn, color: '#00ff00'}}>🎥</button>}
@@ -360,7 +371,6 @@ function App() {
       {callActive && (
         <div style={{height: '35%', borderBottom: '1px solid #00ff00', background: '#000', position:'relative', display:'flex'}}>
             <video ref={remoteVideoRef} autoPlay playsInline style={{width:'100%', height:'100%', objectFit:'cover'}} />
-            {/* V19.2: FIXED VIDEO TAG (Single Ref) */}
             <div style={{position:'absolute', bottom:'10px', right:'10px', width:'80px', height:'110px', border:'1px solid #00ff00', background:'black', zIndex: 10}}>
                 <video ref={localVideoRef} autoPlay playsInline muted style={{width:'100%', height:'100%', objectFit:'cover'}} />
             </div>
