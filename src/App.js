@@ -59,7 +59,7 @@ const DecryptedText = ({ text }) => {
 };
 
 // ---------------------------------------------------------
-// 3. MAIN APPLICATION: UMBRA V15 (ENGLISH FORCE)
+// 3. MAIN APPLICATION: UMBRA V16 (STEALTH MODE)
 // ---------------------------------------------------------
 function App() {
   const [user, setUser] = useState(null); 
@@ -241,7 +241,7 @@ function App() {
       <div style={styles.container}>
         <div style={styles.box}>
           <h1 style={{color: '#00ff00', letterSpacing: '8px', marginBottom:'10px', fontSize:'32px'}}>UMBRA</h1>
-          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// UPLINK PROTOCOL V15.0</div>
+          <div style={{fontSize:'12px', color:'#00ff00', marginBottom:'30px', opacity:0.7}}>// STEALTH PROTOCOL V16.0</div>
           <form onSubmit={handleLogin} style={{display:'flex', flexDirection:'column', gap:'15px'}}>
             <input value={loginName} onChange={e => setLoginName(e.target.value)} type="text" placeholder="CODENAME" style={styles.input} />
             <div style={{display:'flex', gap:'10px'}}>
@@ -256,11 +256,23 @@ function App() {
     );
   }
 
-  // V15: FORCE ENGLISH IN URL
+  // --- V16: STEALTH LINK GENERATION ---
   const secureHash = user.channel.replace(/[^a-zA-Z0-9]/g, '_'); 
   const callUrl = `https://meet.jit.si/UMBRA_SECURE_${secureHash}`;
-  // We append ?lang=en to force Jitsi interface to English
-  const callSrc = `${callUrl}?lang=en#config.startWithAudioMuted=true&config.startWithVideoMuted=true`;
+  
+  // We add config params to HIDE ads, watermarks, and deep linking (mobile app promotion)
+  const configParams = [
+    'config.startWithAudioMuted=true',
+    'config.startWithVideoMuted=true',
+    'config.disableDeepLinking=true', // PREVENTS "DOWNLOAD APP" PAGE
+    'interfaceConfig.MOBILE_APP_PROMO=false', // HIDES PROMO BANNER
+    'interfaceConfig.SHOW_JITSI_WATERMARK=false', // HIDES WATERMARK
+    'interfaceConfig.SHOW_BRAND_WATERMARK=false',
+    'interfaceConfig.SHOW_WATERMARK_FOR_GUESTS=false',
+    'interfaceConfig.HIDE_DEEP_LINKING_LOGO=true'
+  ].join('&');
+
+  const callSrc = `${callUrl}?lang=en#${configParams}`;
 
   return (
     <div style={styles.container}>
@@ -284,11 +296,11 @@ function App() {
         </div>
       </div>
 
-      {/* VIEWSCREEN (ENGLISH FORCED) */}
+      {/* VIEWSCREEN (STEALTH MODE) */}
       {videoMode && (
         <div style={{height: '40vh', borderBottom: '1px solid #00ff00', background: '#000'}}>
             <iframe 
-                src={callSrc} // Using V15 english src
+                src={callSrc} 
                 style={{width:'100%', height:'100%', border:'none'}} 
                 allow="camera; microphone; fullscreen; display-capture" 
                 title="Viewscreen" 
