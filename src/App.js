@@ -16,14 +16,13 @@ import {
 // 1. ASSETS & CONFIG
 // ---------------------------------------------------------
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
-const APP_TITLE = "UMBRA SECURE"; // Browser Tab Title
-const LOGIN_TITLE = "UMBRA V55"; // VISIBLE CHANGE TO CONFIRM UPDATE
+const APP_TITLE = "UMBRA SECURE"; 
+const LOGIN_TITLE = "UMBRA V56"; // VERIFY THIS NUMBER
 const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; 
 
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:global.stun.twilio.com:3478' }
   ]
 };
@@ -104,7 +103,6 @@ function App() {
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
   const [inputPassword, setInputPassword] = useState('');
-  const [saveLogin, setSaveLogin] = useState(false);
   const [friendPhone, setFriendPhone] = useState('');
   const [loginError, setLoginError] = useState('');
 
@@ -123,11 +121,24 @@ function App() {
   const messagesEndRef = useRef(null);
   const ringInterval = useRef(null);
   const fileInputRef = useRef(null);
-  const iceQueue = useRef([]);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
     window.addEventListener('resize', () => setIsMobile(window.innerWidth < 768));
+  }, []);
+
+  // --- V56: CACHE KILLER ---
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) { registration.unregister(); }
+      });
+    }
+    if ('caches' in window) {
+      caches.keys().then((names) => {
+        names.forEach((name) => { caches.delete(name); });
+      });
+    }
   }, []);
 
   // WAKE LOCK & INIT
