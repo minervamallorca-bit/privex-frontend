@@ -2,14 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from './firebase'; 
 import { 
   collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, 
-  limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, increment 
+  limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, increment, writeBatch 
 } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// ICONS
+// ICONS (ALL RESTORED)
 import { 
   FaPowerOff, FaVideo, FaPhoneAlt, FaPaperPlane, FaArrowLeft, 
-  FaHeart, FaHeartBroken, FaPaperclip, FaChevronRight, FaPhoneSlash
+  FaHeart, FaHeartBroken, FaPaperclip, FaChevronRight, FaPhoneSlash,
+  FaCog, FaUserMinus, FaBroom, FaFire, FaMicrophone, FaStop, FaSmile
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
@@ -17,7 +18,7 @@ import {
 // ---------------------------------------------------------
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE"; 
-const LOGIN_TITLE = "UMBRA V56"; // VERIFY THIS NUMBER
+const LOGIN_TITLE = "UMBRA V57"; 
 const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; 
 
 const ICE_SERVERS = {
@@ -57,6 +58,13 @@ const playSound = (type) => {
     gain.gain.linearRampToValueAtTime(0, now + 0.5);
     osc.start(now);
     osc.stop(now + 0.6);
+  } else if (type === 'purge') {
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(150, now);
+    gain.gain.setValueAtTime(0.5, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+    osc.start(now);
+    osc.stop(now + 0.3);
   }
 };
 
@@ -100,20 +108,31 @@ function App() {
   const [contacts, setContacts] = useState([]);
   const [friendStatuses, setFriendStatuses] = useState({});
 
+  // INPUTS
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
   const [inputPassword, setInputPassword] = useState('');
   const [friendPhone, setFriendPhone] = useState('');
   const [loginError, setLoginError] = useState('');
 
+  // SETTINGS INPUTS
+  const [editName, setEditName] = useState('');
+  const [editWallpaper, setEditWallpaper] = useState(null);
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // CALLS
   const [incomingCall, setIncomingCall] = useState(null);
   const [callActive, setCallActive] = useState(false);
   const [activeCallId, setActiveCallId] = useState(null);
   const [isVideo, setIsVideo] = useState(true);
   
+  // CHAT
   const [messages, setMessages] = useState([]);
   const [inputMsg, setInputMsg] = useState('');
+  const [burnMode, setBurnMode] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
 
+  // REFS
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const pc = useRef(null);
@@ -121,24 +140,13 @@ function App() {
   const messagesEndRef = useRef(null);
   const ringInterval = useRef(null);
   const fileInputRef = useRef(null);
+  const wallpaperInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
     window.addEventListener('resize', () => setIsMobile(window.innerWidth < 768));
-  }, []);
-
-  // --- V56: CACHE KILLER ---
-  useEffect(() => {
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.getRegistrations().then(function(registrations) {
-        for(let registration of registrations) { registration.unregister(); }
-      });
-    }
-    if ('caches' in window) {
-      caches.keys().then((names) => {
-        names.forEach((name) => { caches.delete(name); });
-      });
-    }
   }, []);
 
   // WAKE LOCK & INIT
@@ -153,7 +161,7 @@ function App() {
       };
   }, []);
 
-  // HEARTBEAT (Every 10s)
+  // HEARTBEAT
   useEffect(() => {
       if (!myProfile) return;
       const beat = setInterval(() => {
@@ -230,12 +238,13 @@ function App() {
     return () => unsub();
   }, [myProfile]);
 
+  // --- ACTIONS ---
+
   const handleLogin = async () => {
     const cleanPhone = inputPhone.replace(/\D/g, ''); 
     if (cleanPhone.length < 5) { setLoginError('INVALID INPUT'); return; }
     const userRef = doc(db, "users", cleanPhone);
     const snap = await getDoc(userRef);
-    
     if (!snap.exists()) {
       await setDoc(userRef, { phone: cleanPhone, name: inputName, password: inputPassword, lastActive: serverTimestamp() });
     } else {
@@ -247,12 +256,69 @@ function App() {
     setView('APP');
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('umbra_creds');
-    window.location.reload();
+  const openSettings = () => {
+    setEditName(myProfile.name);
+    setView('SETTINGS');
   };
 
-  // CALL LOGIC
+  const saveSettings = async () => {
+    setSavingProfile(true);
+    let updates = { name: editName };
+    if (editWallpaper) {
+        const wallRef = ref(storage, `wallpapers/${myProfile.phone}_${Date.now()}`);
+        await uploadBytes(wallRef, editWallpaper);
+        updates.wallpaper = await getDownloadURL(wallRef);
+    }
+    await updateDoc(doc(db, "users", myProfile.phone), updates);
+    setMyProfile({ ...myProfile, ...updates });
+    setSavingProfile(false);
+    setView('APP');
+  };
+
+  const unfriend = async () => {
+    if(!activeFriend) return;
+    if(!window.confirm(`DELETE ${activeFriend.name}?`)) return;
+    playSound('purge');
+    await deleteDoc(doc(db, "users", myProfile.phone, "friends", activeFriend.phone));
+    await deleteDoc(doc(db, "users", activeFriend.phone, "friends", myProfile.phone));
+    setActiveFriend(null);
+    if(isMobile) setMobileView('LIST');
+  };
+
+  const wipeChat = async () => {
+    if(!activeFriend) return;
+    if(!window.confirm("WIPE ALL MESSAGES?")) return;
+    playSound('purge');
+    const chatId = [myProfile.phone, activeFriend.phone].sort().join("_");
+    const q = query(collection(db, "messages"), where("chatId", "==", chatId));
+    const snap = await getDocs(q);
+    const batch = writeBatch(db);
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  };
+
+  const toggleRecording = async () => {
+    if (isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+    } else {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mediaRecorderRef.current.ondataavailable = (e) => audioChunksRef.current.push(e.data);
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp3' });
+        const fileRef = ref(storage, `umbra_voice/${Date.now()}.mp3`);
+        await uploadBytes(fileRef, audioBlob);
+        const url = await getDownloadURL(fileRef);
+        const chatId = [myProfile.phone, activeFriend.phone].sort().join("_");
+        await addDoc(collection(db, "messages"), { text: url, type: 'audio', sender: myProfile.phone, chatId, createdAt: serverTimestamp(), isBurn: burnMode });
+      };
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+    }
+  };
+
   const startCall = async (videoMode) => {
     if(!activeFriend) return;
     setIsVideo(videoMode);
@@ -349,7 +415,7 @@ function App() {
   const sendText = async () => {
     if(!inputMsg.trim()) return;
     const chatId = [myProfile.phone, activeFriend.phone].sort().join("_");
-    await addDoc(collection(db, "messages"), { text: inputMsg, sender: myProfile.phone, chatId, createdAt: serverTimestamp(), type: 'text' });
+    await addDoc(collection(db, "messages"), { text: inputMsg, sender: myProfile.phone, chatId, createdAt: serverTimestamp(), type: 'text', isBurn: burnMode });
     setInputMsg('');
   };
 
@@ -360,8 +426,32 @@ function App() {
     await uploadBytes(fileRef, file);
     const url = await getDownloadURL(fileRef);
     const chatId = [myProfile.phone, activeFriend.phone].sort().join("_");
-    await addDoc(collection(db, "messages"), { text: url, type: file.type.startsWith('image/') ? 'image' : 'file', sender: myProfile.phone, chatId, createdAt: serverTimestamp() });
+    await addDoc(collection(db, "messages"), { text: url, type: file.type.startsWith('image/') ? 'image' : 'file', sender: myProfile.phone, chatId, createdAt: serverTimestamp(), isBurn: burnMode });
   };
+
+  // --- RENDERERS ---
+
+  if(view === 'SETTINGS') {
+      return (
+        <div style={styles.fullCenter}>
+           <div style={styles.loginBox}>
+              <h1 style={{color: '#00ff00', fontSize: '24px', marginBottom:'20px'}}>IDENTITY CONFIG</h1>
+              <input style={styles.input} placeholder="DISPLAY NAME" value={editName} onChange={e => setEditName(e.target.value)}/>
+              <div style={{marginBottom:'20px'}}>
+                  <div style={{fontSize:'10px', color:'#00ff00', marginBottom:'5px'}}>CHAT WALLPAPER</div>
+                  <input type="file" ref={wallpaperInputRef} hidden onChange={e => setEditWallpaper(e.target.files[0])} accept="image/*" />
+                  <button onClick={() => wallpaperInputRef.current.click()} style={{...styles.btn, background:'#111', border:'1px solid #333', fontSize:'12px'}}>
+                      {editWallpaper ? 'IMAGE SELECTED' : 'UPLOAD IMAGE'}
+                  </button>
+              </div>
+              <button style={styles.btn} onClick={saveSettings} disabled={savingProfile}>
+                  {savingProfile ? 'SAVING...' : 'SAVE CONFIGURATION'}
+              </button>
+              <button style={{...styles.btn, background:'transparent', color:'#888', marginTop:'10px'}} onClick={() => setView('APP')}>CANCEL</button>
+           </div>
+        </div>
+      );
+  }
 
   if(view === 'LOGIN') {
     return (
@@ -398,8 +488,9 @@ function App() {
       <div style={{...styles.sidebar, display: isMobile && mobileView === 'CHAT' ? 'none' : 'flex'}}>
         <div style={styles.header}>
           <img src={getAvatar(myProfile)} style={styles.avatar} alt="me"/>
-          <div style={{flex:1, fontWeight:'bold'}}>{myProfile.name}</div>
-          <FaPowerOff style={{color:'red', cursor:'pointer'}} onClick={handleLogout}/>
+          <div style={{flex:1, fontWeight:'bold', cursor:'pointer'}} onClick={openSettings}>{myProfile.name}</div>
+          <FaCog style={{color:'#00ff00', cursor:'pointer', marginRight:'10px'}} onClick={openSettings} />
+          <FaPowerOff style={{color:'red', cursor:'pointer'}} onClick={() => { localStorage.removeItem('umbra_creds'); window.location.reload(); }}/>
         </div>
         
         <div style={{padding:'10px', display:'flex', gap:'5px', borderBottom:'1px solid #1f1f1f'}}>
@@ -436,6 +527,11 @@ function App() {
             <div style={styles.header}>
               {isMobile && <FaArrowLeft onClick={()=>setMobileView('LIST')} style={{marginRight:'15px', cursor:'pointer'}}/>}
               <div style={{flex:1, fontWeight:'bold'}}>{activeFriend.name || activeFriend.phone}</div>
+              
+              <FaUserMinus style={{...styles.actionIcon, marginRight:'15px', color:'orange'}} onClick={unfriend} title="Unfriend" />
+              <FaBroom style={{...styles.actionIcon, marginRight:'15px', color:'red'}} onClick={wipeChat} title="Wipe Chat" />
+              <FaFire style={{...styles.actionIcon, marginRight:'15px', color: burnMode ? 'orange' : '#333'}} onClick={() => setBurnMode(!burnMode)} title="Burn Mode" />
+
               <FaPhoneAlt style={{...styles.actionIcon, marginRight:'20px'}} onClick={() => startCall(false)}/>
               <FaVideo style={styles.actionIcon} onClick={() => startCall(true)}/>
             </div>
@@ -461,6 +557,8 @@ function App() {
                 <div key={i} style={{...styles.msg, alignSelf: m.sender === myProfile.phone ? 'flex-end' : 'flex-start', background: m.sender === myProfile.phone ? 'rgba(0, 50, 0, 0.3)' : '#111', borderColor: m.sender === myProfile.phone ? '#004400' : '#333'}}>
                   {m.type === 'text' && <div className="matrix-text">{m.text}</div>}
                   {m.type === 'image' && <img src={m.text} style={{maxWidth:'100%', borderRadius:'5px'}} alt="img"/>}
+                  {m.type === 'audio' && <audio src={m.text} controls style={{width:'200px', filter: 'invert(1)'}} />}
+                  {m.isBurn && <div style={{fontSize:'10px', color:'orange', marginTop:'5px'}}>🔥 SELF-DESTRUCT</div>}
                 </div>
               ))}
               <div ref={messagesEndRef}/>
@@ -469,7 +567,9 @@ function App() {
             <div style={styles.inputArea}>
               <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload}/>
               <FaPaperclip style={styles.inputIcon} onClick={() => fileInputRef.current.click()}/>
+              <FaMicrophone style={{...styles.inputIcon, color: isRecording ? 'red' : '#00ff00'}} onClick={toggleRecording} />
               <input style={styles.inputBar} value={inputMsg} onChange={e=>setInputMsg(e.target.value)} onKeyPress={e=>e.key==='Enter'&&sendText()} placeholder="MESSAGE..."/>
+              <FaSmile style={styles.inputIcon} onClick={() => setInputMsg(prev => prev + "👍")} />
               <button style={styles.sendBtn} onClick={sendText}><FaPaperPlane/></button>
             </div>
           </>
