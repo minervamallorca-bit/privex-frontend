@@ -2,15 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db, storage } from './firebase'; 
 import { 
   collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, 
-  limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, increment, writeBatch 
+  limit, setDoc, doc, getDoc, deleteDoc, updateDoc, where, writeBatch 
 } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
-// ICONS (ALL RESTORED)
+// ICONS
 import { 
   FaPowerOff, FaVideo, FaPhoneAlt, FaPaperPlane, FaArrowLeft, 
   FaHeart, FaHeartBroken, FaPaperclip, FaChevronRight, FaPhoneSlash,
-  FaCog, FaUserMinus, FaBroom, FaFire, FaMicrophone, FaStop, FaSmile
+  FaCog, FaUserMinus, FaBroom, FaFire, FaMicrophone, FaSmile
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
@@ -18,7 +18,7 @@ import {
 // ---------------------------------------------------------
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE"; 
-const LOGIN_TITLE = "UMBRA V57"; 
+const LOGIN_TITLE = "UMBRA V58"; // CHECK FOR THIS!
 const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; 
 
 const ICE_SERVERS = {
@@ -115,7 +115,7 @@ function App() {
   const [friendPhone, setFriendPhone] = useState('');
   const [loginError, setLoginError] = useState('');
 
-  // SETTINGS INPUTS
+  // SETTINGS
   const [editName, setEditName] = useState('');
   const [editWallpaper, setEditWallpaper] = useState(null);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -238,8 +238,6 @@ function App() {
     return () => unsub();
   }, [myProfile]);
 
-  // --- ACTIONS ---
-
   const handleLogin = async () => {
     const cleanPhone = inputPhone.replace(/\D/g, ''); 
     if (cleanPhone.length < 5) { setLoginError('INVALID INPUT'); return; }
@@ -333,7 +331,6 @@ function App() {
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
 
     pc.current.ontrack = (e) => { if(remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
-    
     const candidates = [];
     pc.current.onicecandidate = (e) => { if(e.candidate) candidates.push(e.candidate.toJSON()); };
 
@@ -370,7 +367,6 @@ function App() {
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
 
     pc.current.ontrack = (e) => { if(remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
-    
     const candidates = [];
     pc.current.onicecandidate = (e) => { if(e.candidate) candidates.push(e.candidate.toJSON()); };
 
@@ -428,8 +424,6 @@ function App() {
     const chatId = [myProfile.phone, activeFriend.phone].sort().join("_");
     await addDoc(collection(db, "messages"), { text: url, type: file.type.startsWith('image/') ? 'image' : 'file', sender: myProfile.phone, chatId, createdAt: serverTimestamp(), isBurn: burnMode });
   };
-
-  // --- RENDERERS ---
 
   if(view === 'SETTINGS') {
       return (
@@ -526,14 +520,15 @@ function App() {
           <>
             <div style={styles.header}>
               {isMobile && <FaArrowLeft onClick={()=>setMobileView('LIST')} style={{marginRight:'15px', cursor:'pointer'}}/>}
-              <div style={{flex:1, fontWeight:'bold'}}>{activeFriend.name || activeFriend.phone}</div>
+              <div style={{flex:1, fontWeight:'bold', overflow:'hidden', whiteSpace:'nowrap', textOverflow:'ellipsis'}}>{activeFriend.name || activeFriend.phone}</div>
               
-              <FaUserMinus style={{...styles.actionIcon, marginRight:'15px', color:'orange'}} onClick={unfriend} title="Unfriend" />
-              <FaBroom style={{...styles.actionIcon, marginRight:'15px', color:'red'}} onClick={wipeChat} title="Wipe Chat" />
-              <FaFire style={{...styles.actionIcon, marginRight:'15px', color: burnMode ? 'orange' : '#333'}} onClick={() => setBurnMode(!burnMode)} title="Burn Mode" />
-
-              <FaPhoneAlt style={{...styles.actionIcon, marginRight:'20px'}} onClick={() => startCall(false)}/>
-              <FaVideo style={styles.actionIcon} onClick={() => startCall(true)}/>
+              <div style={{display:'flex', gap:'15px', marginRight:'10px'}}>
+                <FaUserMinus style={{...styles.actionIcon, color:'orange'}} onClick={unfriend} title="Unfriend" />
+                <FaBroom style={{...styles.actionIcon, color:'red'}} onClick={wipeChat} title="Wipe Chat" />
+                <FaFire style={{...styles.actionIcon, color: burnMode ? 'orange' : '#333'}} onClick={() => setBurnMode(!burnMode)} title="Burn Mode" />
+                <FaPhoneAlt style={styles.actionIcon} onClick={() => startCall(false)}/>
+                <FaVideo style={styles.actionIcon} onClick={() => startCall(true)}/>
+              </div>
             </div>
 
             {callActive && (
@@ -589,13 +584,13 @@ const styles = {
   btn: { width: '100%', padding: '15px', background: '#00ff00', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize:'16px' },
   sidebar: { flex: '0 0 25%', minWidth: '250px', maxWidth: '350px', borderRight: '1px solid #1f1f1f', display: 'flex', flexDirection: 'column', background: '#0a0a0a' },
   main: { flex: 1, display: 'flex', flexDirection: 'column', background: '#050505', position:'relative' },
-  header: { padding: '15px', borderBottom: '1px solid #1f1f1f', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background:'#000' },
+  header: { padding: '10px', borderBottom: '1px solid #1f1f1f', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background:'#000', height:'50px' },
   contactRow: { padding: '15px', borderBottom: '1px solid #1f1f1f', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' },
   avatar: { width: '40px', height: '40px', borderRadius: '50%', border: '1px solid #00ff00' },
   chatArea: { flex: 1, overflowY: 'auto', padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px', backgroundImage: 'linear-gradient(rgba(0,0,0,0.9),rgba(0,0,0,0.9)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' },
   msg: { padding: '10px', borderRadius: '2px', maxWidth: '80%', border: '1px solid #333' },
   inputArea: { padding: '10px', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '10px', alignItems: 'center', background:'#0a0a0a' },
-  inputBar: { flex: 1, padding: '0 15px', height:'44px', background: '#000', border: '1px solid #333', color: '#fff', outline:'none', fontFamily:'monospace' },
+  inputBar: { flex: 1, padding: '0 15px', height:'44px', background: '#000', border: '1px solid #333', color: '#fff', outline:'none', fontFamily:'monospace', minWidth:0 },
   sendBtn: { padding: '0 20px', height:'44px', background: '#00ff00', border: 'none', fontWeight: 'bold', cursor:'pointer' },
   miniInput: { flex: 1, padding: '8px', background: '#111', border: '1px solid #333', color: 'white', outline:'none', fontFamily:'monospace' },
   iconBtnSmall: { background: 'transparent', border: 'none', color: '#00ff00', fontSize:'20px', cursor:'pointer' },
@@ -608,8 +603,8 @@ const styles = {
   localVideo: { width:'100%', height:'100%', objectFit:'cover' },
   hangupBtn: { position:'absolute', bottom:10, left:'50%', transform:'translateX(-50%)', background:'red', border:'none', color:'white', width:'50px', height:'50px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', cursor:'pointer' },
   audioOnlyUI: { width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#00ff00', fontSize:'18px', letterSpacing:'2px' },
-  inputIcon: { color: '#00ff00', fontSize: '20px', cursor: 'pointer' },
-  actionIcon: { color: '#00ff00', fontSize: '22px', cursor: 'pointer' }
+  inputIcon: { color: '#00ff00', fontSize: '20px', cursor: 'pointer', minWidth:'20px' },
+  actionIcon: { color: '#00ff00', fontSize: '18px', cursor: 'pointer' }
 };
 
 export default App;
