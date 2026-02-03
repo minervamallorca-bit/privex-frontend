@@ -8,7 +8,7 @@ import {
   FaPowerOff, FaCog, FaUserMinus, FaBroom, FaFire, FaPhoneAlt, FaVideo, 
   FaPhoneSlash, FaPaperclip, FaMicrophone, FaStop, FaPaperPlane, 
   FaShareAlt, FaDownload, FaArrowLeft, FaChevronRight,
-  FaHeart, FaHeartBroken // V48: Heart Icons
+  FaHeart, FaHeartBroken 
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
@@ -28,7 +28,7 @@ const getAudioContext = () => {
   return audioCtx;
 };
 
-// BACKGROUND KEEPER
+// BACKGROUND KEEPER (Silent Loop)
 const startKeepAlive = () => {
     const ctx = getAudioContext();
     if (ctx.state === 'suspended') ctx.resume();
@@ -48,26 +48,17 @@ const resumeAudio = () => {
   }
 };
 
-// V48: ENHANCED NOTIFICATIONS
 const triggerSystemNotification = (title, body) => {
     if (Notification.permission === 'granted') {
         try {
             if (navigator.vibrate) navigator.vibrate([1000, 500, 1000, 500, 1000]);
-            
-            // Service Worker Registration for Mobile Wake (If available)
-            if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-                navigator.serviceWorker.controller.postMessage({ type: 'NOTIFY', title, body });
-            } else {
-                // Fallback Standard Notification
-                const n = new Notification(title, {
-                    body: body,
-                    icon: APP_LOGO,
-                    vibrate: [200, 100, 200],
-                    requireInteraction: true,
-                    silent: false
-                });
-                n.onclick = () => { window.focus(); n.close(); };
-            }
+            const n = new Notification(title, {
+                body: body,
+                icon: APP_LOGO,
+                tag: 'umbra-call',
+                requireInteraction: true
+            });
+            n.onclick = () => { window.focus(); n.close(); };
         } catch(e) { console.log("Notify Error", e); }
     }
 };
@@ -148,7 +139,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V48 (HEARTS & OFFLINE PAGING)
+// 2. MAIN APP: UMBRA V49 (STABILIZED)
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -200,6 +191,7 @@ function App() {
   const wallpaperInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const ringInterval = useRef(null); 
+  const iceQueue = useRef([]); // V49: ICE CANDIDATE QUEUE
 
   const isInitialLoad = useRef(true);
 
@@ -252,7 +244,7 @@ function App() {
     }
   }, []);
 
-  // HEARTBEAT
+  // HEARTBEAT LOOP (30s)
   useEffect(() => {
       if (!myProfile) return;
       const sendHeartbeat = async () => {
@@ -287,13 +279,13 @@ function App() {
       return () => unsubs.forEach(u => u());
   }, [contacts]);
 
-  // V48: STATUS CHECK (RETURNS STRING 'ONLINE' OR 'OFFLINE')
+  // V49: INCREASED TOLERANCE (120s)
   const getStatus = (phone) => {
       const lastActive = friendStatuses[phone];
       if (!lastActive) return 'OFFLINE';
       const now = Date.now();
       const last = lastActive.seconds * 1000;
-      return (now - last < 70000) ? 'ONLINE' : 'OFFLINE';
+      return (now - last < 120000) ? 'ONLINE' : 'OFFLINE';
   };
 
   const handleLogin = async (e) => {
@@ -603,6 +595,7 @@ function App() {
     await batch.commit();
   };
 
+  // V49: VIDEO WITH QUEUE
   const startCall = async (mode) => {
     resumeAudio();
     setCallActive(true); setCallStatus('DIALING...'); setIsVideoCall(mode === 'video');
@@ -612,7 +605,8 @@ function App() {
     const answerCandidatesRef = collection(callDocRef, "answerCandidates");
 
     pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
-    
+    iceQueue.current = [];
+
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: mode === 'video' ? { width: 640 } : false });
     localStream.current = stream;
     if (localVideoRef.current && mode === 'video') localVideoRef.current.srcObject = stream;
@@ -644,7 +638,11 @@ function App() {
        snap.docChanges().forEach((change) => {
            if (change.type === 'added') {
                const candidate = new RTCIceCandidate(change.doc.data());
-               pc.current.addIceCandidate(candidate).catch(e => console.log(e));
+               if (pc.current.remoteDescription) {
+                   pc.current.addIceCandidate(candidate).catch(e => console.log(e));
+               } else {
+                   iceQueue.current.push(candidate);
+               }
            }
        });
     });
@@ -665,6 +663,7 @@ function App() {
     setIsVideoCall(callData.mode === 'video');
 
     pc.current = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }] });
+    iceQueue.current = [];
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: callData.mode === 'video' ? { width: 640 } : false });
     localStream.current = stream;
@@ -681,6 +680,10 @@ function App() {
     };
 
     await pc.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(callData.sdp)));
+    
+    // Process Queued ICE
+    iceQueue.current.forEach(c => pc.current.addIceCandidate(c).catch(e => console.log(e)));
+    iceQueue.current = [];
 
     const answer = await pc.current.createAnswer();
     await pc.current.setLocalDescription(answer);
@@ -692,7 +695,11 @@ function App() {
        snap.docChanges().forEach((change) => {
            if (change.type === 'added') {
                const candidate = new RTCIceCandidate(change.doc.data());
-               pc.current.addIceCandidate(candidate).catch(e => console.log(e));
+               if (pc.current.remoteDescription) {
+                   pc.current.addIceCandidate(candidate).catch(e => console.log(e));
+               } else {
+                   iceQueue.current.push(candidate);
+               }
            }
        });
     });
@@ -714,9 +721,7 @@ function App() {
           const data = snap.data();
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
-              
               triggerSystemNotification(`UMBRA: ${data.mode === 'audio' ? 'VOICE' : 'VIDEO'} CALL`, "Incoming Secure Connection...");
-              
               if (!ringInterval.current) {
                   playSound('ringtone');
                   ringInterval.current = setInterval(() => {
@@ -797,7 +802,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V48</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V49</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -809,6 +814,7 @@ function App() {
               <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
               <div style={{marginTop:'15px', cursor:'pointer', fontSize:'10px', color:'#555', textDecoration:'underline'}} onClick={() => setView('RECOVERY')}>LOST ACCESS?</div>
               
+              {/* V41: INTEGRATED SIGNATURE (10.5px, Matrix Green, Bold, Mono) */}
               <div style={{marginTop:'30px', fontSize:'10.5px', fontWeight:'bold', color:'#00ff00', fontFamily:'monospace', borderTop:'1px solid #333', paddingTop:'15px'}}>
                   {COPYRIGHT_TEXT}
               </div>
@@ -857,9 +863,9 @@ function App() {
                         <div style={{flex:1, minWidth:0}}>
                             <div style={styles.contactName}>{c.name}</div>
                             <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
-                            {/* V48: HEARTS */}
+                            {/* V49: BIGGER HEARTS */}
                             <div style={{marginTop:'3px'}}>
-                                {status === 'ONLINE' ? <FaHeart color="#00ff00" size={10}/> : <FaHeartBroken color="red" size={10}/>}
+                                {status === 'ONLINE' ? <FaHeart color="#00ff00" size={12}/> : <FaHeartBroken color="red" size={12}/>}
                             </div>
                         </div>
                         
@@ -875,6 +881,7 @@ function App() {
               })}
           </div>
           
+          {/* V41: INTEGRATED SIGNATURE (SIDEBAR) */}
           <div style={{padding:'15px', fontSize:'10.5px', fontWeight:'bold', color:'#00ff00', fontFamily:'monospace', textAlign:'center', borderTop:'1px solid #1f1f1f', background:'#0a0a0a'}}>
               {COPYRIGHT_TEXT}
           </div>
