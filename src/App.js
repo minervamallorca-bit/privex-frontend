@@ -12,108 +12,59 @@ import {
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
-// 1. ASSETS & CONFIG
+// 1. ASSETS & UTILS
 // ---------------------------------------------------------
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
 const APP_TITLE = "UMBRA SECURE";
 const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; 
 
-// V50: HEAVY ARTILLERY ICE SERVERS (FIREWALL BREAKERS)
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
     { urls: 'stun:global.stun.twilio.com:3478' }
   ]
 };
 
-// AUDIO CONTEXT
+// AUDIO
 let audioCtx = null;
-
 const getAudioContext = () => {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return audioCtx;
-};
-
-// BACKGROUND KEEPER
-const startKeepAlive = () => {
-    const ctx = getAudioContext();
-    if (ctx.state === 'suspended') ctx.resume();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 1; 
-    gain.gain.value = 0.0001; 
-    osc.start();
 };
 
 const resumeAudio = () => {
   const ctx = getAudioContext();
-  if (ctx.state === 'suspended') {
-    ctx.resume().catch(e => console.log(e));
-  }
-};
-
-const triggerSystemNotification = (title, body) => {
-    if (Notification.permission === 'granted') {
-        try {
-            if (navigator.vibrate) navigator.vibrate([1000, 500, 1000, 500, 1000]);
-            const n = new Notification(title, {
-                body: body,
-                icon: APP_LOGO,
-                tag: 'umbra-call',
-                requireInteraction: true
-            });
-            n.onclick = () => { window.focus(); n.close(); };
-        } catch(e) { console.log("Notify Error", e); }
-    }
+  if (ctx.state === 'suspended') ctx.resume().catch(e => console.log(e));
 };
 
 const playSound = (type) => {
   const ctx = getAudioContext();
   if (ctx.state === 'suspended') ctx.resume();
-
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
-  
   osc.connect(gain);
   gain.connect(ctx.destination);
-
   const now = ctx.currentTime;
 
   if (type === 'message') {
     osc.type = 'square'; 
     osc.frequency.setValueAtTime(880, now); 
     gain.gain.setValueAtTime(0.3, now);
-    gain.gain.setValueAtTime(0, now + 0.1);
-    gain.gain.setValueAtTime(0.3, now + 0.4);
-    gain.gain.setValueAtTime(0, now + 0.5);
-    gain.gain.setValueAtTime(0.3, now + 0.8);
-    gain.gain.setValueAtTime(0, now + 0.9);
+    gain.gain.linearRampToValueAtTime(0, now + 0.1);
     osc.start(now);
-    osc.stop(now + 2.0);
-  } 
-  else if (type === 'ringtone') { 
+    osc.stop(now + 0.2);
+  } else if (type === 'ringtone') { 
     osc.type = 'sawtooth';
     osc.frequency.setValueAtTime(600, now);
     osc.frequency.linearRampToValueAtTime(800, now + 0.1);
-    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.setValueAtTime(0.3, now);
     gain.gain.linearRampToValueAtTime(0, now + 0.5);
-    gain.gain.setValueAtTime(0.2, now + 0.6);
-    gain.gain.linearRampToValueAtTime(0, now + 1.1);
     osc.start(now);
-    osc.stop(now + 1.2);
-  } 
-  else if (type === 'purge') {
+    osc.stop(now + 0.6);
+  } else if (type === 'purge') {
     osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(200, now);
-    osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+    osc.frequency.setValueAtTime(150, now);
     gain.gain.setValueAtTime(0.3, now);
     gain.gain.linearRampToValueAtTime(0, now + 0.3);
     osc.start(now);
@@ -151,7 +102,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V50 (FIREWALL BREAKER)
+// 2. MAIN APP
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -203,9 +154,7 @@ function App() {
   const wallpaperInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const ringInterval = useRef(null); 
-  const iceQueue = useRef([]); 
-
-  const isInitialLoad = useRef(true);
+  const iceQueue = useRef([]);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
@@ -214,37 +163,55 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // WAKE LOCK & VISIBILITY HANDLER
+  // WAKE LOCK & HEARTBEAT
   useEffect(() => {
-      const wakeUp = () => {
-          resumeAudio();
-          startKeepAlive();
+      const wakeUp = () => resumeAudio();
+      window.addEventListener('click', wakeUp);
+      window.addEventListener('touchstart', wakeUp);
+      return () => {
+          window.removeEventListener('click', wakeUp);
+          window.removeEventListener('touchstart', wakeUp);
       };
-      window.addEventListener('click', wakeUp, { once: true });
-      window.addEventListener('touchstart', wakeUp, { once: true });
-      
-      const handleVisibilityChange = () => {
-          if (document.visibilityState === 'visible' && myProfile) {
-              updateDoc(doc(db, "users", myProfile.phone), { lastActive: serverTimestamp() });
-          }
-      };
-      document.addEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
 
-      if (Notification.permission !== 'granted' && view === 'APP') {
-          Notification.requestPermission();
-      }
-      
-      return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [view, myProfile]);
+  // V51: AGGRESSIVE HEARTBEAT (5 SECONDS)
+  useEffect(() => {
+      if (!myProfile) return;
+      const beat = setInterval(async () => {
+          try {
+              await updateDoc(doc(db, "users", myProfile.phone), { lastActive: serverTimestamp() });
+          } catch(e) {}
+      }, 5000); // 5 Seconds
+      return () => clearInterval(beat);
+  }, [myProfile]);
+
+  // V51: STATUS MONITOR
+  useEffect(() => {
+      if (!contacts || contacts.length === 0) return;
+      const unsubs = contacts.map(c => 
+          onSnapshot(doc(db, "users", c.phone), (d) => {
+              if(d.exists() && d.data().lastActive) {
+                  setFriendStatuses(prev => ({ ...prev, [c.phone]: d.data().lastActive }));
+              }
+          })
+      );
+      return () => unsubs.forEach(u => u());
+  }, [contacts]);
+
+  // V51: STATUS CHECKER
+  const getStatus = (phone) => {
+      const last = friendStatuses[phone];
+      if (!last) return false; // Offline
+      const now = Date.now();
+      // Handle Firebase Timestamp
+      const millis = last.toMillis ? last.toMillis() : last.seconds * 1000;
+      return (now - millis) < 15000; // 15 Seconds Threshold
+  };
 
   useEffect(() => {
       document.title = APP_TITLE;
       let link = document.querySelector("link[rel~='icon']");
-      if (!link) {
-          link = document.createElement('link');
-          link.rel = 'icon';
-          document.head.appendChild(link);
-      }
+      if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
       link.href = APP_LOGO;
   }, []);
 
@@ -266,59 +233,12 @@ function App() {
     }
   }, []);
 
-  // HEARTBEAT
-  useEffect(() => {
-      if (!myProfile) return;
-      const sendHeartbeat = async () => {
-          try {
-              await updateDoc(doc(db, "users", myProfile.phone), { 
-                  lastActive: serverTimestamp() 
-              });
-          } catch(e) {}
-      };
-      sendHeartbeat(); 
-      const beat = setInterval(sendHeartbeat, 30000); 
-      return () => clearInterval(beat);
-  }, [myProfile]);
-
-  useEffect(() => {
-      if (!contacts || contacts.length === 0) return;
-      const unsubs = [];
-      contacts.forEach(c => {
-          const unsub = onSnapshot(doc(db, "users", c.phone), (doc) => {
-              if(doc.exists()) {
-                  const data = doc.data();
-                  if (data.lastActive) {
-                      setFriendStatuses(prev => ({
-                          ...prev,
-                          [c.phone]: data.lastActive
-                      }));
-                  }
-              }
-          });
-          unsubs.push(unsub);
-      });
-      return () => unsubs.forEach(u => u());
-  }, [contacts]);
-
-  const getStatus = (phone) => {
-      const lastActive = friendStatuses[phone];
-      if (!lastActive) return 'OFFLINE';
-      const now = Date.now();
-      const last = lastActive.seconds * 1000;
-      return (now - last < 120000) ? 'ONLINE' : 'OFFLINE';
-  };
-
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
     resumeAudio(); 
-    if (Notification.permission !== 'granted') Notification.requestPermission();
-
     const cleanPhone = inputPhone.replace(/\D/g, ''); 
-    if (cleanPhone.length < 5 || !inputName.trim() || !inputPassword.trim()) {
-        setLoginError('INVALID INPUTS'); return;
-    }
+    if (cleanPhone.length < 5 || !inputName.trim() || !inputPassword.trim()) { setLoginError('INVALID INPUTS'); return; }
     const userDocRef = doc(db, "users", cleanPhone);
     const userSnap = await getDoc(userDocRef);
     if (!userSnap.exists()) {
@@ -375,17 +295,12 @@ function App() {
       const myNewName = updates.name || myProfile.name;
       const friendsSnap = await getDocs(collection(db, "users", myProfile.phone, "friends"));
       const batch = writeBatch(db);
-      let count = 0;
       friendsSnap.forEach((friendDoc) => {
           const friendPhone = friendDoc.id;
           const refInFriend = doc(db, "users", friendPhone, "friends", myProfile.phone);
           batch.set(refInFriend, { name: myNewName, avatar: myNewAvatar }, { merge: true });
-          count++;
       });
-      if (count > 0) {
-          setSaveStatusText(`SYNCING ${count} FRIENDS...`);
-          await batch.commit();
-      }
+      await batch.commit();
       setMyProfile({ ...myProfile, ...updates });
       setSavingProfile(false);
       setSaveStatusText('SAVED!');
@@ -476,9 +391,7 @@ function App() {
       setActiveFriend(friend);
       isInitialLoad.current = true; 
       if (isMobile) setMobileView('CHAT'); 
-      if (friend.unread > 0) {
-          await updateDoc(doc(db, "users", myProfile.phone, "friends", friend.phone), { unread: 0 });
-      }
+      if (friend.unread > 0) await updateDoc(doc(db, "users", myProfile.phone, "friends", friend.phone), { unread: 0 });
   };
   
   const goBack = () => { setMobileView('LIST'); if (!isMobile) setActiveFriend(null); };
@@ -494,14 +407,12 @@ function App() {
                    const msg = change.doc.data();
                    if (msg.sender !== myProfile.phone) {
                        playSound('message'); 
-                       triggerSystemNotification(`UMBRA: ${msg.senderName}`, "New Encrypted Message");
                    }
                }
            });
        } else {
            isInitialLoad.current = false;
        }
-
        let msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
        msgs.forEach(async (msg) => {
            if (msg.sender !== myProfile.phone && !msg.readAt) {
@@ -616,7 +527,7 @@ function App() {
     await batch.commit();
   };
 
-  // V50: FIREWALL BREAKER CONNECTION
+  // V51: WEBRTC QUEUE LOGIC
   const startCall = async (mode) => {
     resumeAudio();
     setCallActive(true); setCallStatus('DIALING...'); setIsVideoCall(mode === 'video');
@@ -741,12 +652,9 @@ function App() {
           const data = snap.data();
           if (data && data.type === 'offer' && data.sender !== myProfile.phone && !callActive) {
               setCallStatus(data.mode === 'audio' ? 'INCOMING VOICE...' : 'INCOMING VIDEO...');
-              triggerSystemNotification(`UMBRA: ${data.mode === 'audio' ? 'VOICE' : 'VIDEO'} CALL`, "Incoming Secure Connection...");
               if (!ringInterval.current) {
                   playSound('ringtone');
-                  ringInterval.current = setInterval(() => {
-                      playSound('ringtone');
-                  }, 2500);
+                  ringInterval.current = setInterval(() => playSound('ringtone'), 2500);
               }
           }
           if (!data && callActive) { 
@@ -822,7 +730,7 @@ function App() {
            <div style={styles.loginBox}>
               <img src={APP_LOGO} style={{width:'80px', marginBottom:'10px'}} alt="Logo" />
               <h1 style={{color: '#00ff00', fontSize: '32px', marginBottom:'20px'}}>UMBRA</h1>
-              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V50</div>
+              <div style={{color: '#00ff00', fontSize:'12px', marginBottom:'20px'}}>SECURE VAULT V51</div>
               <input style={styles.input} placeholder="PHONE NUMBER" value={inputPhone} onChange={e => setInputPhone(e.target.value)} type="tel"/>
               <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e => setInputName(e.target.value)}/>
               <input style={styles.input} placeholder="PASSWORD" value={inputPassword} onChange={e => setInputPassword(e.target.value)} type="password"/>
@@ -875,15 +783,20 @@ function App() {
           )}
           <div style={{flex:1, overflowY:'auto'}}>
               {contacts.map(c => {
-                  const status = getStatus(c.phone);
+                  const online = getStatus(c.phone);
                   return (
                     <div key={c.phone} onClick={() => selectFriend(c)} style={{...styles.contactRow, background: activeFriend?.phone === c.phone ? '#111' : 'transparent'}}>
                         <img src={getAvatar(c)} style={styles.avatar} alt="av"/>
                         <div style={{flex:1, minWidth:0}}>
                             <div style={styles.contactName}>{c.name}</div>
                             <div style={{fontSize:'10px', opacity:0.6}}>{c.phone}</div>
-                            <div style={{marginTop:'3px'}}>
-                                {status === 'ONLINE' ? <FaHeart color="#00ff00" size={12}/> : <FaHeartBroken color="red" size={12}/>}
+                            
+                            {/* V51: VISUAL CONFIRMATION */}
+                            <div style={{marginTop:'3px', display:'flex', alignItems:'center', gap:'5px'}}>
+                                {online ? <FaHeart color="#00ff00" size={12}/> : <FaHeartBroken color="red" size={12}/>}
+                                <span style={{fontSize:'8px', color: online ? '#00ff00' : 'red', fontWeight:'bold'}}>
+                                    {online ? 'ONLINE' : 'OFFLINE'}
+                                </span>
                             </div>
                         </div>
                         
@@ -917,7 +830,15 @@ function App() {
                         <button onClick={unfriend} style={{...styles.iconBtn, color:'orange', borderColor:'orange'}} title="Unfriend"><FaUserMinus /></button>
                         <button onClick={wipeChat} style={{...styles.iconBtn, color:'#FF0000', borderColor:'#333'}}><FaBroom /></button>
                         <button onClick={() => setBurnMode(!burnMode)} style={{...styles.iconBtn, color: burnMode ? 'black' : 'orange', background: burnMode ? 'orange' : 'transparent', borderColor: 'orange'}}><FaFire /></button>
-                        {!callActive && (<><button onClick={() => startCall('audio')} style={styles.iconBtn}><FaPhoneAlt /></button><button onClick={() => startCall('video')} style={styles.iconBtn}><FaVideo /></button></>)}
+                        
+                        {/* V51: ALWAYS ENABLED CALL BUTTONS */}
+                        {!callActive && (
+                            <>
+                                <button onClick={() => startCall('audio')} style={styles.iconBtn}><FaPhoneAlt /></button>
+                                <button onClick={() => startCall('video')} style={styles.iconBtn}><FaVideo /></button>
+                            </>
+                        )}
+                        
                         {callStatus.includes('INCOMING') && <button onClick={answerCall} style={{...styles.iconBtn, background:'#00ff00', color:'black'}}><FaPhoneAlt /></button>}
                         {callActive && <button onClick={endCall} style={{...styles.iconBtn, color:'red', borderColor:'red'}}><FaPhoneSlash /></button>}
                     </div>
