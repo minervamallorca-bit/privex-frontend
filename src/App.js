@@ -9,14 +9,15 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 // ICONS
 import { 
   FaPowerOff, FaVideo, FaPhoneAlt, FaPaperPlane, FaArrowLeft, 
-  FaHeart, FaHeartBroken, FaPaperclip, FaMicrophone, FaStop, FaChevronRight 
+  FaHeart, FaHeartBroken, FaPaperclip, FaChevronRight, FaPhoneSlash
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
 // 1. ASSETS & CONFIG
 // ---------------------------------------------------------
 const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
-const APP_TITLE = "UMBRA SECURE";
+const APP_TITLE = "UMBRA SECURE"; // Browser Tab Title
+const LOGIN_TITLE = "UMBRA V55"; // VISIBLE CHANGE TO CONFIRM UPDATE
 const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; 
 
 const ICE_SERVERS = {
@@ -90,7 +91,7 @@ const GlitchStyles = () => (
 );
 
 // ---------------------------------------------------------
-// 2. MAIN APP: UMBRA V54 (FINAL POLISH)
+// 2. MAIN APP
 // ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
@@ -103,6 +104,7 @@ function App() {
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
   const [inputPassword, setInputPassword] = useState('');
+  const [saveLogin, setSaveLogin] = useState(false);
   const [friendPhone, setFriendPhone] = useState('');
   const [loginError, setLoginError] = useState('');
 
@@ -113,7 +115,6 @@ function App() {
   
   const [messages, setMessages] = useState([]);
   const [inputMsg, setInputMsg] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -122,7 +123,7 @@ function App() {
   const messagesEndRef = useRef(null);
   const ringInterval = useRef(null);
   const fileInputRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
+  const iceQueue = useRef([]);
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
@@ -233,6 +234,11 @@ function App() {
     localStorage.setItem('umbra_creds', JSON.stringify({ phone: cleanPhone, password: inputPassword }));
     setMyProfile({ phone: cleanPhone, name: inputName });
     setView('APP');
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('umbra_creds');
+    window.location.reload();
   };
 
   // CALL LOGIC
@@ -351,7 +357,7 @@ function App() {
       <div style={styles.fullCenter}>
         <div style={styles.loginBox}>
           <img src={APP_LOGO} style={{width:'80px', marginBottom:'15px'}} alt="logo"/>
-          <h1 style={{color:'#00ff00', fontSize:'32px', marginBottom:'20px'}}>UMBRA</h1>
+          <h1 style={{color:'#00ff00', fontSize:'32px', marginBottom:'20px'}}>{LOGIN_TITLE}</h1>
           <input style={styles.input} placeholder="PHONE" value={inputPhone} onChange={e=>setInputPhone(e.target.value)} type="tel"/>
           <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e=>setInputName(e.target.value)}/>
           <input style={styles.input} placeholder="PASSWORD" type="password" value={inputPassword} onChange={e=>setInputPassword(e.target.value)}/>
@@ -382,7 +388,7 @@ function App() {
         <div style={styles.header}>
           <img src={getAvatar(myProfile)} style={styles.avatar} alt="me"/>
           <div style={{flex:1, fontWeight:'bold'}}>{myProfile.name}</div>
-          <FaPowerOff style={{color:'red', cursor:'pointer'}} onClick={() => { localStorage.clear(); window.location.reload(); }}/>
+          <FaPowerOff style={{color:'red', cursor:'pointer'}} onClick={handleLogout}/>
         </div>
         
         <div style={{padding:'10px', display:'flex', gap:'5px', borderBottom:'1px solid #1f1f1f'}}>
@@ -477,7 +483,7 @@ const styles = {
   avatar: { width: '40px', height: '40px', borderRadius: '50%', border: '1px solid #00ff00' },
   chatArea: { flex: 1, overflowY: 'auto', padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px', backgroundImage: 'linear-gradient(rgba(0,0,0,0.9),rgba(0,0,0,0.9)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' },
   msg: { padding: '10px', borderRadius: '2px', maxWidth: '80%', border: '1px solid #333' },
-  inputArea: { padding: '10px', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '10px', alignItems:'center', background:'#0a0a0a' },
+  inputArea: { padding: '10px', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '10px', alignItems: 'center', background:'#0a0a0a' },
   inputBar: { flex: 1, padding: '0 15px', height:'44px', background: '#000', border: '1px solid #333', color: '#fff', outline:'none', fontFamily:'monospace' },
   sendBtn: { padding: '0 20px', height:'44px', background: '#00ff00', border: 'none', fontWeight: 'bold', cursor:'pointer' },
   miniInput: { flex: 1, padding: '8px', background: '#111', border: '1px solid #333', color: 'white', outline:'none', fontFamily:'monospace' },
