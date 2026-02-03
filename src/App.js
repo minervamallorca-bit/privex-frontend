@@ -6,251 +6,316 @@ import {
 } from 'firebase/firestore'; 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
+// ICONS
 import { 
   FaPowerOff, FaVideo, FaPhoneAlt, FaPaperPlane, FaArrowLeft, 
-  FaHeart, FaHeartBroken, FaExclamationTriangle
+  FaHeart, FaHeartBroken, FaPaperclip, FaMicrophone, FaStop, FaChevronRight 
 } from 'react-icons/fa';
 
-const APP_TITLE = "UMBRA SECURE (DEBUG MODE)";
+// ---------------------------------------------------------
+// 1. ASSETS & CONFIG
+// ---------------------------------------------------------
+const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
+const APP_TITLE = "UMBRA SECURE";
 const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; 
 
 const ICE_SERVERS = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:global.stun.twilio.com:3478' }
   ]
 };
 
-// --- LOGGING SYSTEM ---
-let logs = [];
-const addLog = (msg) => {
-  const time = new Date().toLocaleTimeString();
-  logs.unshift(`[${time}] ${msg}`);
-  if(logs.length > 20) logs.pop();
-  console.log(`[UMBRA] ${msg}`);
-};
-
-// --- AUDIO ---
+// AUDIO
 let audioCtx = null;
 const resumeAudio = () => {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   if (audioCtx.state === 'suspended') audioCtx.resume();
 };
 
-const playSound = () => {
+const playSound = (type) => {
   resumeAudio();
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   osc.connect(gain);
   gain.connect(audioCtx.destination);
-  osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-  gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-  osc.start();
-  osc.stop(audioCtx.currentTime + 0.5);
+  const now = audioCtx.currentTime;
+
+  if (type === 'message') {
+    osc.type = 'square'; 
+    osc.frequency.setValueAtTime(880, now); 
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.linearRampToValueAtTime(0, now + 0.1);
+    osc.start(now);
+    osc.stop(now + 0.2);
+  } else if (type === 'ring') { 
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(600, now);
+    osc.frequency.linearRampToValueAtTime(800, now + 0.1);
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.linearRampToValueAtTime(0, now + 0.5);
+    osc.start(now);
+    osc.stop(now + 0.6);
+  }
 };
 
-// --- MAIN COMPONENT ---
+const getAvatar = (user) => {
+    if (!user) return `https://api.dicebear.com/7.x/bottts/svg?seed=Unknown&backgroundColor=transparent`;
+    if (user.avatar) return user.avatar;
+    return `https://api.dicebear.com/7.x/bottts/svg?seed=${user.name || 'User'}&backgroundColor=transparent`;
+};
+
+const GlitchStyles = () => (
+  <style>
+    {`
+      @keyframes matrix-decode {
+        0% { opacity: 0; text-shadow: 0 0 5px #0f0; }
+        20% { opacity: 1; color: #ccffcc; }
+        40% { opacity: 0.8; color: #00ff41; }
+        60% { opacity: 1; text-shadow: 2px 0 red, -2px 0 blue; }
+        80% { opacity: 0.9; text-shadow: none; }
+        100% { opacity: 1; color: #00ff41; }
+      }
+      .matrix-text {
+        font-family: 'Courier New', monospace;
+        color: #00ff41;
+        font-weight: bold;
+        animation: matrix-decode 0.4s ease-out forwards;
+        text-shadow: 0 0 3px rgba(0, 255, 65, 0.5);
+        letter-spacing: 0.5px;
+      }
+    `}
+  </style>
+);
+
+// ---------------------------------------------------------
+// 2. MAIN APP: UMBRA V54 (FINAL POLISH)
+// ---------------------------------------------------------
 function App() {
   const [view, setView] = useState('LOGIN'); 
+  const [mobileView, setMobileView] = useState('LIST'); 
   const [myProfile, setMyProfile] = useState(null); 
   const [activeFriend, setActiveFriend] = useState(null); 
   const [contacts, setContacts] = useState([]);
   const [friendStatuses, setFriendStatuses] = useState({});
-  const [debugLog, setDebugLog] = useState([]);
 
-  // INPUTS
   const [inputPhone, setInputPhone] = useState('');
   const [inputName, setInputName] = useState('');
   const [inputPassword, setInputPassword] = useState('');
   const [friendPhone, setFriendPhone] = useState('');
+  const [loginError, setLoginError] = useState('');
 
-  // CALL
   const [incomingCall, setIncomingCall] = useState(null);
   const [callActive, setCallActive] = useState(false);
+  const [activeCallId, setActiveCallId] = useState(null);
   const [isVideo, setIsVideo] = useState(true);
   
+  const [messages, setMessages] = useState([]);
+  const [inputMsg, setInputMsg] = useState('');
+  const [isRecording, setIsRecording] = useState(false);
+
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const pc = useRef(null);
-  
-  // CHAT
-  const [messages, setMessages] = useState([]);
-  const [inputMsg, setInputMsg] = useState('');
+  const localStream = useRef(null);
   const messagesEndRef = useRef(null);
+  const ringInterval = useRef(null);
+  const fileInputRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
 
-  // DEBUG REFRESH
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
-    const interval = setInterval(() => setDebugLog([...logs]), 1000);
-    return () => clearInterval(interval);
+    window.addEventListener('resize', () => setIsMobile(window.innerWidth < 768));
   }, []);
 
-  // 1. AUTO LOGIN & HEARTBEAT
+  // WAKE LOCK & INIT
   useEffect(() => {
-    const creds = localStorage.getItem('umbra_creds');
-    if (creds) {
-      const { phone, password } = JSON.parse(creds);
+      const wakeUp = () => resumeAudio();
+      window.addEventListener('click', wakeUp);
+      window.addEventListener('touchstart', wakeUp);
+      document.title = APP_TITLE;
+      return () => {
+          window.removeEventListener('click', wakeUp);
+          window.removeEventListener('touchstart', wakeUp);
+      };
+  }, []);
+
+  // HEARTBEAT (Every 10s)
+  useEffect(() => {
+      if (!myProfile) return;
+      const beat = setInterval(() => {
+          updateDoc(doc(db, "users", myProfile.phone), { lastActive: serverTimestamp() });
+      }, 10000); 
+      return () => clearInterval(beat);
+  }, [myProfile]);
+
+  // AUTO LOGIN
+  useEffect(() => {
+    const storedCreds = localStorage.getItem('umbra_creds');
+    if (storedCreds) {
+      const { phone, password } = JSON.parse(storedCreds);
       getDoc(doc(db, "users", phone)).then(snap => {
-        if(snap.exists() && snap.data().password === password) {
-          setMyProfile({ ...snap.data(), phone });
-          addLog("AUTO-LOGIN SUCCESS");
-          setView('APP');
-        } else {
-          addLog("AUTO-LOGIN FAILED: Invalid Creds");
+        if (snap.exists() && snap.data().password === password) {
+           setMyProfile({ ...snap.data(), phone });
+           setView('APP');
         }
-      }).catch(e => addLog(`LOGIN ERROR: ${e.message}`));
+      });
     }
   }, []);
 
-  // HEARTBEAT (10s)
+  // STATUS MONITOR
   useEffect(() => {
-    if(!myProfile) return;
-    const beat = setInterval(() => {
-      updateDoc(doc(db, "users", myProfile.phone), { lastActive: serverTimestamp() })
-        .catch(e => addLog(`HEARTBEAT FAIL: ${e.message}`));
-    }, 10000);
-    return () => clearInterval(beat);
-  }, [myProfile]);
+      if (!contacts || contacts.length === 0) return;
+      const unsubs = contacts.map(c => 
+          onSnapshot(doc(db, "users", c.phone), (d) => {
+              if(d.exists() && d.data().lastActive) {
+                  setFriendStatuses(prev => ({ ...prev, [c.phone]: d.data().lastActive }));
+              }
+          })
+      );
+      return () => unsubs.forEach(u => u());
+  }, [contacts]);
 
-  // 2. INCOMING CALL LISTENER
+  const getStatus = (phone) => {
+      const last = friendStatuses[phone];
+      if (!last) return false;
+      const now = Date.now();
+      const millis = last.toMillis ? last.toMillis() : last.seconds * 1000;
+      return (now - millis) < 70000; 
+  };
+
+  // GLOBAL CALL LISTENER
   useEffect(() => {
     if(!myProfile) return;
-    const q = query(collection(db, "calls"), where("to", "==", myProfile.phone));
+    const q = query(collection(db, "calls"), where("to", "==", myProfile.phone), where("type", "==", "offer"));
     const unsub = onSnapshot(q, (snap) => {
-      snap.docChanges().forEach(change => {
-        if (change.type === "added") {
-          const data = change.doc.data();
-          if (data.type === 'offer' && !callActive) {
-            addLog(`INCOMING CALL FROM ${data.from}`);
-            setIncomingCall({ id: change.doc.id, ...data });
-            playSound();
+      if(!snap.empty) {
+        const docData = snap.docs[0];
+        if(!callActive && !incomingCall) {
+          setIncomingCall({ id: docData.id, ...docData.data() });
+          if(!ringInterval.current) {
+            playSound('ring');
+            ringInterval.current = setInterval(() => playSound('ring'), 2500);
           }
         }
-      });
+      } else {
+        if(incomingCall && !callActive) {
+          setIncomingCall(null);
+          if(ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
+        }
+      }
     });
     return () => unsub();
-  }, [myProfile, callActive]);
+  }, [myProfile, callActive, incomingCall]);
 
-  // 3. FRIEND STATUS LISTENER
+  // FRIEND LIST LISTENER
   useEffect(() => {
     if(!myProfile) return;
     const unsub = onSnapshot(collection(db, "users", myProfile.phone, "friends"), (snap) => {
-      const friends = snap.docs.map(d => d.data());
-      setContacts(friends);
-      addLog(`LOADED ${friends.length} FRIENDS`);
-      
-      friends.forEach(f => {
-        onSnapshot(doc(db, "users", f.phone), (s) => {
-          if(s.exists()) setFriendStatuses(prev => ({ ...prev, [f.phone]: s.data().lastActive }));
-        });
-      });
+      setContacts(snap.docs.map(d => d.data()));
     });
     return () => unsub();
   }, [myProfile]);
 
-  const getStatus = (phone) => {
-    const last = friendStatuses[phone];
-    if(!last) return false;
-    const now = Date.now();
-    const millis = last.toMillis ? last.toMillis() : last.seconds * 1000;
-    return (now - millis) < 70000; 
+  const handleLogin = async () => {
+    const cleanPhone = inputPhone.replace(/\D/g, ''); 
+    if (cleanPhone.length < 5) { setLoginError('INVALID INPUT'); return; }
+    const userRef = doc(db, "users", cleanPhone);
+    const snap = await getDoc(userRef);
+    
+    if (!snap.exists()) {
+      await setDoc(userRef, { phone: cleanPhone, name: inputName, password: inputPassword, lastActive: serverTimestamp() });
+    } else {
+      if (snap.data().password !== inputPassword) { setLoginError('WRONG PASSWORD'); return; }
+      await updateDoc(userRef, { lastActive: serverTimestamp() });
+    }
+    localStorage.setItem('umbra_creds', JSON.stringify({ phone: cleanPhone, password: inputPassword }));
+    setMyProfile({ phone: cleanPhone, name: inputName });
+    setView('APP');
   };
 
-  // 4. CALL LOGIC
+  // CALL LOGIC
   const startCall = async (videoMode) => {
     if(!activeFriend) return;
     setIsVideo(videoMode);
     setCallActive(true);
-    addLog(`STARTING ${videoMode ? 'VIDEO' : 'AUDIO'} CALL...`);
-
     const callId = `${myProfile.phone}_${activeFriend.phone}_${Date.now()}`;
-    
-    // SETUP PC
+    setActiveCallId(callId);
+
     pc.current = new RTCPeerConnection(ICE_SERVERS);
-    
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: videoMode });
-    if(localVideoRef.current) localVideoRef.current.srcObject = stream;
+    localStream.current = stream;
+    if(localVideoRef.current && videoMode) localVideoRef.current.srcObject = stream;
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
 
-    pc.current.onicecandidate = (e) => {
-      if(e.candidate) {
-        addLog("GENERATED ICE CANDIDATE");
-        // Update doc with candidate logic normally goes here, simplified for single doc push
-      }
-    };
-
-    pc.current.ontrack = (e) => {
-      if(remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
-    };
+    pc.current.ontrack = (e) => { if(remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    
+    const candidates = [];
+    pc.current.onicecandidate = (e) => { if(e.candidate) candidates.push(e.candidate.toJSON()); };
 
     const offer = await pc.current.createOffer();
     await pc.current.setLocalDescription(offer);
 
-    // SEND OFFER
-    await setDoc(doc(db, "calls", callId), {
-      from: myProfile.phone,
-      to: activeFriend.phone,
-      offer: JSON.stringify(offer),
-      type: 'offer',
-      isVideo: videoMode,
-      createdAt: serverTimestamp()
-    });
-    addLog("OFFER SENT TO DB");
+    setTimeout(async () => {
+      await setDoc(doc(db, "calls", callId), {
+        from: myProfile.phone, to: activeFriend.phone, offer: JSON.stringify(offer),
+        type: 'offer', isVideo: videoMode, candidates: JSON.stringify(candidates)
+      });
+    }, 1000);
 
-    // WAIT FOR ANSWER
     onSnapshot(doc(db, "calls", callId), async (snap) => {
       const data = snap.data();
       if(data?.type === 'answer' && !pc.current.currentRemoteDescription) {
-        addLog("ANSWER RECEIVED");
         await pc.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(data.answer)));
+        if(data.answerCandidates) JSON.parse(data.answerCandidates).forEach(c => pc.current.addIceCandidate(new RTCIceCandidate(c)));
       }
     });
   };
 
   const answerCall = async () => {
     if(!incomingCall) return;
+    if(ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
     setCallActive(true);
     setIsVideo(incomingCall.isVideo);
-    addLog("ANSWERING CALL...");
+    setActiveCallId(incomingCall.id);
 
     pc.current = new RTCPeerConnection(ICE_SERVERS);
-    
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: incomingCall.isVideo });
-    if(localVideoRef.current) localVideoRef.current.srcObject = stream;
+    localStream.current = stream;
+    if(localVideoRef.current && incomingCall.isVideo) localVideoRef.current.srcObject = stream;
     stream.getTracks().forEach(t => pc.current.addTrack(t, stream));
 
-    pc.current.ontrack = (e) => {
-      if(remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
-    };
+    pc.current.ontrack = (e) => { if(remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    
+    const candidates = [];
+    pc.current.onicecandidate = (e) => { if(e.candidate) candidates.push(e.candidate.toJSON()); };
 
     await pc.current.setRemoteDescription(new RTCSessionDescription(JSON.parse(incomingCall.offer)));
+    if(incomingCall.candidates) JSON.parse(incomingCall.candidates).forEach(c => pc.current.addIceCandidate(new RTCIceCandidate(c)));
+
     const answer = await pc.current.createAnswer();
     await pc.current.setLocalDescription(answer);
 
-    await updateDoc(doc(db, "calls", incomingCall.id), {
-      answer: JSON.stringify(answer),
-      type: 'answer'
-    });
-    addLog("ANSWER SENT");
+    setTimeout(async () => {
+      await updateDoc(doc(db, "calls", incomingCall.id), {
+        answer: JSON.stringify(answer), type: 'answer', answerCandidates: JSON.stringify(candidates)
+      });
+    }, 1000);
     setIncomingCall(null);
   };
 
-  const login = async () => {
-    if(inputPhone.length < 3) { addLog("INVALID PHONE"); return; }
-    try {
-      const userRef = doc(db, "users", inputPhone);
-      await setDoc(userRef, { phone: inputPhone, name: inputName, password: inputPassword, lastActive: serverTimestamp() }, { merge: true });
-      localStorage.setItem('umbra_creds', JSON.stringify({ phone: inputPhone, password: inputPassword }));
-      setMyProfile({ phone: inputPhone, name: inputName });
-      addLog("LOGIN SUCCESS");
-      setView('APP');
-    } catch(e) {
-      addLog(`LOGIN FATAL ERROR: ${e.message}`);
-      alert("DB ERROR: Check Log");
-    }
+  const endCall = async () => {
+    if(ringInterval.current) { clearInterval(ringInterval.current); ringInterval.current = null; }
+    if(localStream.current) localStream.current.getTracks().forEach(t => t.stop());
+    if(pc.current) pc.current.close();
+    if(activeCallId) try { await deleteDoc(doc(db, "calls", activeCallId)); } catch(e){}
+    setCallActive(false);
+    setActiveCallId(null);
+    setIncomingCall(null);
   };
 
-  // 5. CHAT LOGIC
+  // CHAT LOGIC
   useEffect(() => {
     if(!activeFriend || !myProfile) return;
     const chatId = [myProfile.phone, activeFriend.phone].sort().join("_");
@@ -258,38 +323,41 @@ function App() {
     const unsub = onSnapshot(q, (snap) => {
       const msgs = snap.docs.map(d => d.data());
       setMessages(msgs);
+      if(snap.docChanges().some(c => c.type === 'added')) playSound('message');
       setTimeout(() => messagesEndRef.current?.scrollIntoView(), 100);
-    }, (error) => {
-      addLog(`MSG READ ERROR: ${error.message}`);
     });
     return () => unsub();
   }, [activeFriend, myProfile]);
 
   const sendText = async () => {
-    if(!inputMsg) return;
+    if(!inputMsg.trim()) return;
     const chatId = [myProfile.phone, activeFriend.phone].sort().join("_");
-    try {
-      await addDoc(collection(db, "messages"), {
-        text: inputMsg, sender: myProfile.phone, chatId, createdAt: serverTimestamp(), type: 'text'
-      });
-      setInputMsg('');
-    } catch(e) { addLog(`SEND ERROR: ${e.message}`); }
+    await addDoc(collection(db, "messages"), { text: inputMsg, sender: myProfile.phone, chatId, createdAt: serverTimestamp(), type: 'text' });
+    setInputMsg('');
   };
 
-  // --- UI RENDER ---
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !activeFriend) return;
+    const fileRef = ref(storage, `umbra_files/${Date.now()}_${file.name}`);
+    await uploadBytes(fileRef, file);
+    const url = await getDownloadURL(fileRef);
+    const chatId = [myProfile.phone, activeFriend.phone].sort().join("_");
+    await addDoc(collection(db, "messages"), { text: url, type: file.type.startsWith('image/') ? 'image' : 'file', sender: myProfile.phone, chatId, createdAt: serverTimestamp() });
+  };
+
   if(view === 'LOGIN') {
     return (
-      <div style={styles.container}>
-        <div style={styles.debugPanel}>
-          <div style={{color:'orange'}}>SYSTEM LOGS:</div>
-          {debugLog.map((l,i) => <div key={i}>{l}</div>)}
-        </div>
-        <div style={styles.center}>
-          <h1 style={{color:'#00ff00'}}>UMBRA DIAGNOSTICS</h1>
-          <input style={styles.input} placeholder="Phone" value={inputPhone} onChange={e=>setInputPhone(e.target.value)}/>
-          <input style={styles.input} placeholder="Name" value={inputName} onChange={e=>setInputName(e.target.value)}/>
-          <input style={styles.input} placeholder="Password" value={inputPassword} onChange={e=>setInputPassword(e.target.value)}/>
-          <button style={styles.btn} onClick={login}>CONNECT TO SERVER</button>
+      <div style={styles.fullCenter}>
+        <div style={styles.loginBox}>
+          <img src={APP_LOGO} style={{width:'80px', marginBottom:'15px'}} alt="logo"/>
+          <h1 style={{color:'#00ff00', fontSize:'32px', marginBottom:'20px'}}>UMBRA</h1>
+          <input style={styles.input} placeholder="PHONE" value={inputPhone} onChange={e=>setInputPhone(e.target.value)} type="tel"/>
+          <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e=>setInputName(e.target.value)}/>
+          <input style={styles.input} placeholder="PASSWORD" type="password" value={inputPassword} onChange={e=>setInputPassword(e.target.value)}/>
+          <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
+          {loginError && <div style={{color:'red', marginTop:'10px'}}>{loginError}</div>}
+          <div style={styles.copyright}>{COPYRIGHT_TEXT}</div>
         </div>
       </div>
     );
@@ -297,102 +365,134 @@ function App() {
 
   return (
     <div style={styles.container}>
-      {/* DEBUG OVERLAY */}
-      <div style={styles.debugPanel}>
-        <div style={{color:'orange'}}>LIVE DIAGNOSTICS:</div>
-        {debugLog.map((l,i) => <div key={i}>{l}</div>)}
-      </div>
-
+      <GlitchStyles/>
+      
       {incomingCall && !callActive && (
         <div style={styles.modal}>
-          <h1>INCOMING CALL FROM {incomingCall.from}</h1>
-          <button style={{...styles.btn, background:'green'}} onClick={answerCall}>ANSWER</button>
+          <h1 style={{color:'#00ff00', fontSize:'24px', animation:'blink 1s infinite'}}>INCOMING {incomingCall.isVideo?'VIDEO':'AUDIO'} CALL</h1>
+          <div style={{fontSize:'18px', color:'white', marginBottom:'20px'}}>{incomingCall.from}</div>
+          <div style={{display:'flex', gap:'20px'}}>
+            <button style={{...styles.btn, background:'green'}} onClick={answerCall}>ACCEPT</button>
+            <button style={{...styles.btn, background:'red'}} onClick={() => { setIncomingCall(null); clearInterval(ringInterval.current); }}>DECLINE</button>
+          </div>
         </div>
       )}
 
-      {/* SIDEBAR */}
-      <div style={styles.sidebar}>
-        <div style={{padding:10, borderBottom:'1px solid #333'}}>
-          {myProfile.name} <span style={{fontSize:10, color:'gray'}}>({myProfile.phone})</span>
+      <div style={{...styles.sidebar, display: isMobile && mobileView === 'CHAT' ? 'none' : 'flex'}}>
+        <div style={styles.header}>
+          <img src={getAvatar(myProfile)} style={styles.avatar} alt="me"/>
+          <div style={{flex:1, fontWeight:'bold'}}>{myProfile.name}</div>
+          <FaPowerOff style={{color:'red', cursor:'pointer'}} onClick={() => { localStorage.clear(); window.location.reload(); }}/>
         </div>
-        <div style={{padding:10}}>
-          <input style={styles.miniInput} placeholder="Add Friend Phone" value={friendPhone} onChange={e=>setFriendPhone(e.target.value)}/>
-          <button style={styles.tinyBtn} onClick={async () => {
-            if(!friendPhone) return;
-            try {
-              await setDoc(doc(db, "users", myProfile.phone, "friends", friendPhone), { phone: friendPhone, name: "User" });
-              await setDoc(doc(db, "users", friendPhone, "friends", myProfile.phone), { phone: myProfile.phone, name: myProfile.name });
-              addLog(`ADDED FRIEND: ${friendPhone}`);
-              setFriendPhone('');
-            } catch(e) { addLog(`ADD FAIL: ${e.message}`); }
-          }}>ADD</button>
+        
+        <div style={{padding:'10px', display:'flex', gap:'5px', borderBottom:'1px solid #1f1f1f'}}>
+          <input style={styles.miniInput} placeholder="ADD PHONE #" value={friendPhone} onChange={e=>setFriendPhone(e.target.value)} type="tel"/>
+          <button style={styles.iconBtnSmall} onClick={async () => {
+             if(!friendPhone) return;
+             await setDoc(doc(db, "users", myProfile.phone, "friends", friendPhone), { phone: friendPhone, name: "New Contact" });
+             await setDoc(doc(db, "users", friendPhone, "friends", myProfile.phone), { phone: myProfile.phone, name: myProfile.name });
+             setFriendPhone('');
+          }}>+</button>
         </div>
-        {contacts.map(c => (
-          <div key={c.phone} style={styles.contact} onClick={()=>setActiveFriend(c)}>
-            <div>{c.name}</div>
-            <div style={{fontSize:10, color: getStatus(c.phone)?'#00ff00':'red'}}>
-              {getStatus(c.phone) ? <FaHeart/> : <FaHeartBroken/>} {getStatus(c.phone)?'ONLINE':'OFFLINE'}
+
+        <div style={{flex:1, overflowY:'auto'}}>
+          {contacts.map(c => (
+            <div key={c.phone} style={{...styles.contactRow, background: activeFriend?.phone === c.phone ? '#111' : 'transparent'}} onClick={() => { setActiveFriend(c); if(isMobile) setMobileView('CHAT'); }}>
+              <img src={getAvatar(c)} style={styles.avatar} alt="av"/>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:'bold'}}>{c.name || c.phone}</div>
+                <div style={{display:'flex', alignItems:'center', gap:'5px', fontSize:'10px', marginTop:'2px'}}>
+                   {getStatus(c.phone) ? <FaHeart color="#00ff00"/> : <FaHeartBroken color="red"/>}
+                   <span style={{color: getStatus(c.phone)?'#00ff00':'red'}}>{getStatus(c.phone)?'ONLINE':'OFFLINE'}</span>
+                </div>
+              </div>
+              <FaChevronRight style={{color:'#00ff00', fontSize:'12px'}}/>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+        <div style={styles.copyright}>{COPYRIGHT_TEXT}</div>
       </div>
 
-      {/* MAIN */}
-      <div style={styles.main}>
+      <div style={{...styles.main, display: isMobile && mobileView === 'LIST' ? 'none' : 'flex'}}>
         {activeFriend ? (
           <>
             <div style={styles.header}>
-              {activeFriend.phone}
-              <div style={{display:'flex', gap:10}}>
-                <FaPhoneAlt onClick={()=>startCall(false)} style={{cursor:'pointer'}}/>
-                <FaVideo onClick={()=>startCall(true)} style={{cursor:'pointer'}}/>
-              </div>
+              {isMobile && <FaArrowLeft onClick={()=>setMobileView('LIST')} style={{marginRight:'15px', cursor:'pointer'}}/>}
+              <div style={{flex:1, fontWeight:'bold'}}>{activeFriend.name || activeFriend.phone}</div>
+              <FaPhoneAlt style={{...styles.actionIcon, marginRight:'20px'}} onClick={() => startCall(false)}/>
+              <FaVideo style={styles.actionIcon} onClick={() => startCall(true)}/>
             </div>
 
             {callActive && (
-              <div style={styles.videoArea}>
-                <video ref={remoteVideoRef} autoPlay playsInline style={{width:'100%', height:'100%', objectFit:'cover'}}/>
-                <video ref={localVideoRef} autoPlay playsInline muted style={{position:'absolute', bottom:10, right:10, width:100, border:'1px solid #fff'}}/>
-                <button style={styles.hangupBtn} onClick={() => window.location.reload()}>END DEBUG SESSION</button>
+              <div style={styles.videoContainer}>
+                {isVideo ? (
+                  <>
+                    <video ref={remoteVideoRef} autoPlay playsInline style={styles.remoteVideo}/>
+                    <div style={styles.localVideoWrapper}>
+                        <video ref={localVideoRef} autoPlay playsInline muted style={styles.localVideo}/>
+                    </div>
+                  </>
+                ) : (
+                  <div style={styles.audioOnlyUI}>AUDIO LINK ACTIVE</div>
+                )}
+                <button style={styles.hangupBtn} onClick={endCall}><FaPhoneSlash/></button>
               </div>
             )}
 
-            <div style={styles.chat}>
-              {messages.map((m,i) => (
-                <div key={i} style={{alignSelf: m.sender===myProfile.phone?'flex-end':'flex-start', background:'#222', padding:5, margin:2}}>
-                  {m.text}
+            <div style={styles.chatArea}>
+              {messages.map((m, i) => (
+                <div key={i} style={{...styles.msg, alignSelf: m.sender === myProfile.phone ? 'flex-end' : 'flex-start', background: m.sender === myProfile.phone ? 'rgba(0, 50, 0, 0.3)' : '#111', borderColor: m.sender === myProfile.phone ? '#004400' : '#333'}}>
+                  {m.type === 'text' && <div className="matrix-text">{m.text}</div>}
+                  {m.type === 'image' && <img src={m.text} style={{maxWidth:'100%', borderRadius:'5px'}} alt="img"/>}
                 </div>
               ))}
               <div ref={messagesEndRef}/>
             </div>
+
             <div style={styles.inputArea}>
-              <input style={styles.input} value={inputMsg} onChange={e=>setInputMsg(e.target.value)}/>
-              <button style={styles.btn} onClick={sendText}><FaPaperPlane/></button>
+              <input type="file" ref={fileInputRef} hidden onChange={handleFileUpload}/>
+              <FaPaperclip style={styles.inputIcon} onClick={() => fileInputRef.current.click()}/>
+              <input style={styles.inputBar} value={inputMsg} onChange={e=>setInputMsg(e.target.value)} onKeyPress={e=>e.key==='Enter'&&sendText()} placeholder="MESSAGE..."/>
+              <button style={styles.sendBtn} onClick={sendText}><FaPaperPlane/></button>
             </div>
           </>
-        ) : <div style={{padding:20}}>SELECT CONTACT</div>}
+        ) : (
+          <div style={styles.emptyState}>SELECT A TARGET</div>
+        )}
       </div>
     </div>
   );
 }
 
 const styles = {
-  container: { display:'flex', height:'100vh', background:'black', color:'white', fontFamily:'monospace' },
-  debugPanel: { position:'fixed', top:0, right:0, width:'200px', height:'200px', background:'rgba(0,0,0,0.8)', border:'1px solid red', fontSize:'10px', overflowY:'auto', zIndex:9999, pointerEvents:'none' },
-  sidebar: { width:'250px', borderRight:'1px solid #333' },
-  main: { flex:1, display:'flex', flexDirection:'column' },
-  center: { margin:'auto', width:'300px', textAlign:'center' },
-  input: { width:'100%', padding:10, background:'#111', border:'1px solid #333', color:'#00ff00', marginBottom:5 },
-  miniInput: { width:'70%', padding:5, background:'#111', border:'1px solid #333', color:'white' },
-  btn: { padding:10, background:'#00ff00', border:'none', cursor:'pointer', fontWeight:'bold' },
-  tinyBtn: { width:'25%', padding:5, background:'blue', border:'none', color:'white' },
-  contact: { padding:10, borderBottom:'1px solid #222', cursor:'pointer' },
-  header: { padding:15, borderBottom:'1px solid #333', display:'flex', justifyContent:'space-between' },
-  chat: { flex:1, overflowY:'auto', padding:10, display:'flex', flexDirection:'column' },
-  inputArea: { padding:10, borderTop:'1px solid #333', display:'flex' },
-  modal: { position:'fixed', top:0, left:0, width:'100%', height:'100%', background:'rgba(0,0,0,0.9)', zIndex:1000, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' },
-  videoArea: { height:'300px', background:'#111', position:'relative', borderBottom:'1px solid #00ff00' },
-  hangupBtn: { position:'absolute', bottom:10, left:'50%', transform:'translateX(-50%)', background:'red', color:'white', padding:10, border:'none' }
+  container: { height: '100%', position: 'fixed', top: 0, left: 0, width: '100%', background: '#080808', color: '#00ff00', fontFamily: 'Courier New, monospace', display: 'flex' },
+  fullCenter: { height: '100vh', width: '100vw', display:'flex', alignItems:'center', justifyContent:'center', background:'#050505' },
+  loginBox: { border: '1px solid #00ff00', padding: '30px', width:'85%', maxWidth:'350px', textAlign: 'center', background:'#000' },
+  input: { display: 'block', width: '100%', padding: '15px', background: '#111', border: '1px solid #333', color: '#00ff00', marginBottom: '15px', boxSizing: 'border-box', outline:'none', fontFamily:'monospace' },
+  btn: { width: '100%', padding: '15px', background: '#00ff00', border: 'none', fontWeight: 'bold', cursor: 'pointer', fontSize:'16px' },
+  sidebar: { flex: '0 0 25%', minWidth: '250px', maxWidth: '350px', borderRight: '1px solid #1f1f1f', display: 'flex', flexDirection: 'column', background: '#0a0a0a' },
+  main: { flex: 1, display: 'flex', flexDirection: 'column', background: '#050505', position:'relative' },
+  header: { padding: '15px', borderBottom: '1px solid #1f1f1f', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background:'#000' },
+  contactRow: { padding: '15px', borderBottom: '1px solid #1f1f1f', display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' },
+  avatar: { width: '40px', height: '40px', borderRadius: '50%', border: '1px solid #00ff00' },
+  chatArea: { flex: 1, overflowY: 'auto', padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px', backgroundImage: 'linear-gradient(rgba(0,0,0,0.9),rgba(0,0,0,0.9)), url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' },
+  msg: { padding: '10px', borderRadius: '2px', maxWidth: '80%', border: '1px solid #333' },
+  inputArea: { padding: '10px', borderTop: '1px solid #1f1f1f', display: 'flex', gap: '10px', alignItems:'center', background:'#0a0a0a' },
+  inputBar: { flex: 1, padding: '0 15px', height:'44px', background: '#000', border: '1px solid #333', color: '#fff', outline:'none', fontFamily:'monospace' },
+  sendBtn: { padding: '0 20px', height:'44px', background: '#00ff00', border: 'none', fontWeight: 'bold', cursor:'pointer' },
+  miniInput: { flex: 1, padding: '8px', background: '#111', border: '1px solid #333', color: 'white', outline:'none', fontFamily:'monospace' },
+  iconBtnSmall: { background: 'transparent', border: 'none', color: '#00ff00', fontSize:'20px', cursor:'pointer' },
+  modal: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.95)', zIndex: 999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' },
+  emptyState: { flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#333', fontSize: '24px', letterSpacing:'5px' },
+  copyright: { padding: '15px', fontSize: '10.5px', fontWeight: 'bold', color: '#00ff00', textAlign: 'center', fontFamily: 'monospace', borderTop:'1px solid #1f1f1f', background:'#0a0a0a' },
+  videoContainer: { height: '300px', background:'#000', borderBottom:'1px solid #00ff00', position:'relative' },
+  remoteVideo: { width:'100%', height:'100%', objectFit:'cover' },
+  localVideoWrapper: { position:'absolute', bottom:10, right:10, width:'80px', height:'100px', border:'1px solid #00ff00', background:'black' },
+  localVideo: { width:'100%', height:'100%', objectFit:'cover' },
+  hangupBtn: { position:'absolute', bottom:10, left:'50%', transform:'translateX(-50%)', background:'red', border:'none', color:'white', width:'50px', height:'50px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', cursor:'pointer' },
+  audioOnlyUI: { width:'100%', height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#00ff00', fontSize:'18px', letterSpacing:'2px' },
+  inputIcon: { color: '#00ff00', fontSize: '20px', cursor: 'pointer' },
+  actionIcon: { color: '#00ff00', fontSize: '22px', cursor: 'pointer' }
 };
 
 export default App;
