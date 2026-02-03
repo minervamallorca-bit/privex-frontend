@@ -14,12 +14,10 @@ import {
 } from 'react-icons/fa';
 
 // ---------------------------------------------------------
-// 1. ASSETS & CONFIG
+// 1. CONFIG & VERSION ENFORCER
 // ---------------------------------------------------------
-const APP_LOGO = "https://img.icons8.com/fluency/96/fingerprint-scan.png"; 
+const CURRENT_VERSION = "V59"; // THE TARGET VERSION
 const APP_TITLE = "UMBRA SECURE"; 
-const LOGIN_TITLE = "UMBRA V58"; // CHECK FOR THIS!
-const COPYRIGHT_TEXT = "GMYCO Technologies - ES / office@gmyco.es"; 
 
 const ICE_SERVERS = {
   iceServers: [
@@ -147,6 +145,38 @@ function App() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   useEffect(() => {
     window.addEventListener('resize', () => setIsMobile(window.innerWidth < 768));
+  }, []);
+
+  // --- V59: THE CACHE KILLER ---
+  useEffect(() => {
+    const checkVersion = async () => {
+        // 1. Check local version
+        const storedVersion = localStorage.getItem('umbra_version');
+        
+        // 2. If mismatch, PURGE EVERYTHING
+        if (storedVersion !== CURRENT_VERSION) {
+            console.log(`Version Mismatch: ${storedVersion} vs ${CURRENT_VERSION}. PURGING...`);
+            
+            // Clear Storage
+            localStorage.setItem('umbra_version', CURRENT_VERSION);
+            
+            // Unregister Workers
+            if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for(let reg of regs) await reg.unregister();
+            }
+            
+            // Delete Caches
+            if ('caches' in window) {
+                const keys = await caches.keys();
+                for(let key of keys) await caches.delete(key);
+            }
+
+            // FORCE RELOAD WITH TIMESTAMP (Bypasses Browser Cache)
+            window.location.href = window.location.pathname + '?v=' + Date.now();
+        }
+    };
+    checkVersion();
   }, []);
 
   // WAKE LOCK & INIT
@@ -394,7 +424,6 @@ function App() {
     setIncomingCall(null);
   };
 
-  // CHAT LOGIC
   useEffect(() => {
     if(!activeFriend || !myProfile) return;
     const chatId = [myProfile.phone, activeFriend.phone].sort().join("_");
@@ -452,13 +481,13 @@ function App() {
       <div style={styles.fullCenter}>
         <div style={styles.loginBox}>
           <img src={APP_LOGO} style={{width:'80px', marginBottom:'15px'}} alt="logo"/>
-          <h1 style={{color:'#00ff00', fontSize:'32px', marginBottom:'20px'}}>{LOGIN_TITLE}</h1>
+          <h1 style={{color:'#00ff00', fontSize:'32px', marginBottom:'20px'}}>UMBRA {CURRENT_VERSION}</h1>
           <input style={styles.input} placeholder="PHONE" value={inputPhone} onChange={e=>setInputPhone(e.target.value)} type="tel"/>
           <input style={styles.input} placeholder="CODENAME" value={inputName} onChange={e=>setInputName(e.target.value)}/>
           <input style={styles.input} placeholder="PASSWORD" type="password" value={inputPassword} onChange={e=>setInputPassword(e.target.value)}/>
           <button style={styles.btn} onClick={handleLogin}>AUTHENTICATE</button>
           {loginError && <div style={{color:'red', marginTop:'10px'}}>{loginError}</div>}
-          <div style={styles.copyright}>{COPYRIGHT_TEXT}</div>
+          <div style={styles.copyright}>GMYCO Technologies</div>
         </div>
       </div>
     );
